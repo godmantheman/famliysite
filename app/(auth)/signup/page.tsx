@@ -30,8 +30,26 @@ export default function SignupPage() {
         setLoading(true);
 
         try {
-            // 1. Auth Signup
-            console.log("Signup: Reaching out to Supabase Auth...");
+            // Pre-validation for Join Family
+            if (step === 'JOIN_FAMILY') {
+                const codeUpper = inviteCode.trim().toUpperCase();
+                const { data: family, error: findError } = await supabase
+                    .from('families')
+                    .select('id')
+                    .eq('invite_code', codeUpper)
+                    .maybeSingle();
+
+                if (findError) throw findError;
+                if (!family) throw new Error("유효하지 않은 초대 코드입니다. 다시 확인해주세요.");
+            }
+
+            // Generate code early if creating family
+            const generatedCode = Math.random().toString(36).substring(2, 8).toUpperCase();
+            const finalInviteCode = step === 'CREATE_FAMILY' ? generatedCode : inviteCode.trim().toUpperCase();
+
+            // 1. Auth Signup with all data in metadata
+            // The database trigger 'handle_new_user' will handle family creation/joining and profile setup
+            console.log("Signup: Reaching out to Supabase Auth (Atomic Trigger Flow)...");
             const response = await withTimeout(
                 (async () => {
                     return await supabase.auth.signUp({
@@ -40,7 +58,10 @@ export default function SignupPage() {
                         options: {
                             data: {
                                 full_name: name,
-                                avatar_url: `https://api.dicebear.com/7.x/avataaars/svg?seed=${email}`
+                                avatar_url: `https://api.dicebear.com/7.x/avataaars/svg?seed=${email}`,
+                                signup_type: step,
+                                family_name: step === 'CREATE_FAMILY' ? familyName : null,
+                                invite_code: finalInviteCode
                             }
                         }
                     });
@@ -51,98 +72,22 @@ export default function SignupPage() {
             if (response.error) throw response.error;
             const user = response.data.user;
             if (!user) throw new Error("계정 생성에 실패했습니다 (User data null)");
-            console.log("Signup: Auth user created:", user.id);
 
-            // Wait a bit for the profile trigger to run (optional but helpful for immediate fetch)
-            await new Promise(resolve => setTimeout(resolve, 1000));
+            console.log("Signup: Auth user created successfully. Atomic trigger handled profiling.");
 
-            // 2. Family Logic
-            if (step === 'CREATE_FAMILY') {
-                console.log("Signup: Creating new family:", familyName);
-                const code = Math.random().toString(36).substring(2, 8).toUpperCase();
-
-                const familyResponse = await withTimeout(
-                    (async () => {
-                        return await supabase
-                            .from('families')
-                            .insert({ name: familyName, invite_code: code })
-                            .select()
-                            .maybeSingle();
-                    })(),
-                    "Creating Family"
-                );
-
-                if (familyResponse.error) throw familyResponse.error;
-                const newFamily = familyResponse.data;
-                if (!newFamily) throw new Error("가족 그룹 생성 결과가 없습니다.");
-                console.log("Signup: Family created:", newFamily.id, "Code:", code);
-
-                console.log("Signup: Upserting user profile with family_id...");
-                // Use UPSERT instead of UPDATE to ensure the record exists
-                const profileResponse = await withTimeout(
-                    (async () => {
-                        return await supabase
-                            .from('profiles')
-                            .upsert({
-                                id: user.id,
-                                family_id: newFamily.id,
-                                full_name: name,
-                                avatar_url: `https://api.dicebear.com/7.x/avataaars/svg?seed=${email}`
-                            });
-                    })(),
-                    "Upserting Profile (Family ID)"
-                );
-                if (profileResponse.error) {
-                    console.error("Signup: Profile upsert failed.", profileResponse.error);
-                    throw new Error("프로필 연동 중 오류가 발생했습니다: " + profileResponse.error.message);
-                }
-
-            } else if (step === 'JOIN_FAMILY') {
-                console.log("Signup: Joining existing family with code:", inviteCode);
-                const codeUpper = inviteCode.trim().toUpperCase();
-                const findResponse = await withTimeout(
-                    (async () => {
-                        return await supabase
-                            .from('families')
-                            .select('id')
-                            .eq('invite_code', codeUpper)
-                            .maybeSingle();
-                    })(),
-                    "Finding Family"
-                );
-
-                if (findResponse.error) throw findResponse.error;
-                const family = findResponse.data;
-                if (!family) throw new Error("유효하지 않은 초대 코드입니다. 다시 확인해주세요.");
-                console.log("Signup: Family found:", family.id);
-
-                console.log("Signup: Upserting user profile with joined family_id...");
-                const profileUpdateResponse = await withTimeout(
-                    (async () => {
-                        return await supabase
-                            .from('profiles')
-                            .upsert({
-                                id: user.id,
-                                family_id: family.id,
-                                full_name: name,
-                                avatar_url: `https://api.dicebear.com/7.x/avataaars/svg?seed=${email}`
-                            });
-                    })(),
-                    "Upserting Profile (Join Family)"
-                );
-                if (profileUpdateResponse.error) {
-                    console.error("Signup: Profile join upsert failed.", profileUpdateResponse.error);
-                    throw new Error("가족 그룹 참여 중 오류가 발생했습니다: " + profileUpdateResponse.error.message);
-                }
-            }
-
-            console.log("Signup: All operations finished successfully!");
-            alert('회원가입이 완료되었습니다! 이제 로그인하여 가족 공간을 확인해보세요.');
+            alert('회원가입이 성공적으로 완료되었습니다! 이메일 인증이 필요한 경우 메일을 확인해 주세요.');
             router.push('/login');
 
         } catch (error: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
             console.error("Signup Catch Block:", error);
-            alert('회원가입 과정 중 에러가 발생했습니다: ' + (error.message || "알 수 없는 오류"));
+            // Translate common Supabase error messages
+            let msg = error.message || "알 수 없는 오류";
+            if (msg.includes("row-level security")) {
+                msg = "보안 정책 문제로 요청이 거부되었습니다. 데이터베이스 설정을 다시 확인해주세요.";
+            } else if (msg.includes("duplicate key")) {
+                msg = "이미 존재하는 초대 코드입니다. 다른 이름으로 시도해보세요.";
+            }
+            alert('회원가입 과정 중 에러가 발생했습니다: ' + msg);
         } finally {
             console.log("Signup: Loading state cleared");
             setLoading(false);

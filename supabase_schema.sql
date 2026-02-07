@@ -146,17 +146,48 @@ commit;
 alter publication supabase_realtime add table messages, todos, photos, events;
 
 
--- Function to handle new user signup
+-- Function to handle new user signup with atomic family creation/joining
 create or replace function public.handle_new_user()
 returns trigger as $$
+declare
+  f_id uuid;
+  signup_type text;
+  invite_code text;
+  family_name text;
 begin
-  insert into public.profiles (id, full_name, avatar_url)
-  values (new.id, new.raw_user_meta_data->>'full_name', new.raw_user_meta_data->>'avatar_url');
+  -- Extract metadata
+  signup_type := new.raw_user_meta_data->>'signup_type';
+  invite_code := upper(new.raw_user_meta_data->>'invite_code');
+  family_name := new.raw_user_meta_data->>'family_name';
+
+  -- 1. Handle Family Logic
+  if (signup_type = 'CREATE_FAMILY') then
+    -- Create new family
+    insert into public.families (name, invite_code)
+    values (family_name, invite_code)
+    returning id into f_id;
+  elsif (signup_type = 'JOIN_FAMILY') then
+    -- Find existing family
+    select id into f_id from public.families 
+    where public.families.invite_code = invite_code
+    limit 1;
+  end if;
+
+  -- 2. Insert Profile (linked to family if f_id found)
+  insert into public.profiles (id, full_name, avatar_url, family_id)
+  values (
+    new.id, 
+    new.raw_user_meta_data->>'full_name', 
+    new.raw_user_meta_data->>'avatar_url',
+    f_id
+  );
+  
   return new;
 end;
 $$ language plpgsql security definer;
 
--- Trigger to call the function on signup
+-- Trigger to call the function on signup (Ensure it only runs once)
+drop trigger if exists on_auth_user_created on auth.users;
 create trigger on_auth_user_created
   after insert on auth.users
   for each row execute procedure public.handle_new_user();
