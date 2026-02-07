@@ -20,17 +20,32 @@ export default function LoginPage() {
         if (!email || !password) return; // Updated condition
 
         setLoading(true);
-        const { error } = await supabase.auth.signInWithPassword({ // Changed to signInWithPassword
-            email,
-            password,
-        });
+        try {
+            const { data, error } = await supabase.auth.signInWithPassword({
+                email,
+                password,
+            });
 
-        setLoading(false);
+            if (error) {
+                console.error("Login Supabase Error:", error);
+                alert('로그인 실패: ' + error.message);
+                setLoading(false); // Ensure loading is stopped
+                return;
+            }
 
-        if (error) {
-            alert('로그인 실패: ' + error.message); // Added error handling
-        } else {
-            router.push('/dashboard');
+            if (data?.user) {
+                // Check if user has a profile/family
+                /* 
+                   Ideally we check profile here, but for now let's just redirect.
+                   If we encounter issues with redirects, we can use window.location.href or router.replace
+                */
+                console.log("Login success:", data.user);
+                router.push('/dashboard');
+            }
+        } catch (e) {
+            console.error("Login Unexpected Error:", e);
+            alert('로그인 중 알 수 없는 오류가 발생했습니다.');
+            setLoading(false);
         }
     };
 

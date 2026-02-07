@@ -73,6 +73,16 @@
     background-color: var(--accent);
 }
 
+.outline {
+    background-color: transparent;
+    border: 1px solid #e4e4e7;
+    color: #18181b;
+}
+
+.outline:hover:not(:disabled) {
+    background-color: #f4f4f5;
+}
+
 .fullWidth {
     width: 100%;
 }
