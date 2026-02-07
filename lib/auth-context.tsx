@@ -26,18 +26,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const [user, setUser] = useState<User | null>(null);
     const [isLoading, setIsLoading] = useState(true);
 
-    // Helper to enrich user with metadata fallback
     const enrichUser = useCallback((currentUser: SupabaseUser, profileData?: any): User => {
+        const metadata = currentUser.user_metadata || {};
+        const name = profileData?.full_name || metadata.full_name || metadata.name || metadata.display_name || '';
+        const avatar = profileData?.avatar_url || metadata.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${currentUser.email}`;
+        const familyId = profileData?.family_id || null;
+
+        console.log(`AuthContext: Enriching user ${currentUser.id}`, { name, familyId, hasProfile: !!profileData });
+
         return {
             ...currentUser,
-            name: profileData?.full_name || currentUser.user_metadata?.full_name || currentUser.user_metadata?.name || '',
-            avatar: profileData?.avatar_url || currentUser.user_metadata?.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${currentUser.email}`,
-            familyId: profileData?.family_id || null
+            name,
+            avatar,
+            familyId
         };
     }, []);
 
     const fetchProfile = useCallback(async (currentUser: SupabaseUser, retryCount = 0) => {
-        console.log(`AuthContext: fetchProfile() starting for: ${currentUser.id} (attempt ${retryCount + 1})`);
+        console.log(`AuthContext: fetchProfile [${currentUser.id}] attempt ${retryCount + 1}`);
         try {
             const response = await withTimeout(
                 (async () => {
@@ -52,35 +58,57 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
             if (response.error) {
                 console.error("AuthContext: Profile fetch error:", response.error);
-                // Even on error, we should have set the basic user from session already, 
-                // but let's ensure it has at least metadata fallbacks
                 setUser(enrichUser(currentUser));
-            } else if (response.data) {
-                const profile = response.data;
-                console.log("AuthContext: Profile found, updating user state enriched");
-                setUser(enrichUser(currentUser, profile));
+                return false;
+            }
+
+            if (response.data) {
+                console.log("AuthContext: Profile found in DB:", response.data);
+                setUser(enrichUser(currentUser, response.data));
                 return true;
             } else {
-                console.log("AuthContext: No profile found for user in DB.");
-                // Set fallback from metadata while we wait/retry
+                console.warn("AuthContext: No profile record found in 'profiles' table.");
+
+                // Fallback: Enrichment from metadata while waiting
                 setUser(enrichUser(currentUser));
 
-                // If it's a fresh signup, the trigger might still be running. Retry once after delay.
-                if (retryCount < 2) {
-                    console.log("AuthContext: Retrying profile fetch in 2s...");
-                    await new Promise(resolve => setTimeout(resolve, 2000));
-                    return await fetchProfile(currentUser, retryCount + 1);
+                // If no profile exists and it's not a fresh signup retry, we might need to create it (Recovery)
+                if (retryCount >= 2) {
+                    console.log("AuthContext: Profile missing after retries. Attempting recovery creation...");
+                    const metadata = currentUser.user_metadata || {};
+                    const { error: upsertError } = await supabase
+                        .from('profiles')
+                        .upsert({
+                            id: currentUser.id,
+                            full_name: metadata.full_name || metadata.name || '',
+                            avatar_url: metadata.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${currentUser.email}`
+                        });
+
+                    if (upsertError) {
+                        console.error("AuthContext: Profile recovery upsert failed:", upsertError);
+                    } else {
+                        console.log("AuthContext: Profile recovery successful.");
+                        // Try fetching one last time to get any trigger-added family_id
+                        const { data } = await supabase.from('profiles').select('*').eq('id', currentUser.id).maybeSingle();
+                        if (data) setUser(enrichUser(currentUser, data));
+                    }
+                    return false;
                 }
+
+                // Fresh signup/login retry logic
+                console.log("AuthContext: Retrying profile fetch in 2s...");
+                await new Promise(resolve => setTimeout(resolve, 2000));
+                return await fetchProfile(currentUser, retryCount + 1);
             }
         } catch (e) {
-            console.error("AuthContext: Unexpected error fetching profile:", e);
+            console.error("AuthContext: Unexpected error in fetchProfile:", e);
             setUser(enrichUser(currentUser));
         }
         return false;
     }, [enrichUser]);
 
     const refreshProfile = useCallback(async () => {
-        console.log("AuthContext: refreshProfile() called");
+        console.log("AuthContext: refreshProfile() triggered");
         const { data: { session } } = await supabase.auth.getSession();
         if (session?.user) {
             await fetchProfile(session.user);
@@ -88,38 +116,31 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }, [fetchProfile]);
 
     useEffect(() => {
-        console.log("AuthContext: useEffect [init] starting...");
+        console.log("AuthContext: useEffect mounting...");
 
         const checkSession = async () => {
-            console.log("AuthContext: checkSession() starting...");
+            console.log("AuthContext: Initial session check starting...");
             try {
                 const response = await withTimeout(
-                    (async () => {
-                        return await supabase.auth.getSession();
-                    })(),
-                    "supabase.auth.getSession"
+                    supabase.auth.getSession(),
+                    "initial getSession"
                 );
 
-                if (response.error) {
-                    console.error("AuthContext: getSession error:", response.error);
-                    return;
-                }
+                if (response.error) throw response.error;
 
                 const session = response.data.session;
-                console.log("AuthContext: Session exists:", !!session);
                 if (session?.user) {
-                    console.log("AuthContext: Setting user state from session:", session.user.id);
-                    // Set initial state from metadata immediately
+                    console.log("AuthContext: Found existing session for:", session.user.id);
                     setUser(enrichUser(session.user));
-                    // Fetch full profile (family_id etc) in background
-                    fetchProfile(session.user);
+                    await fetchProfile(session.user);
                 } else {
+                    console.log("AuthContext: No active session found.");
                     setUser(null);
                 }
             } catch (e) {
-                console.error("AuthContext: Unexpected error during checkSession:", e);
+                console.error("AuthContext: checkSession failed:", e);
             } finally {
-                console.log("AuthContext: setting isLoading = false (init)");
+                console.log("AuthContext: Loading set to false");
                 setIsLoading(false);
             }
         };
@@ -127,33 +148,32 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         checkSession();
 
         const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-            console.log("AuthContext: onAuthStateChange fired:", event);
+            console.log(`AuthContext: Auth event fired [${event}]`);
 
             if (session?.user) {
-                console.log("AuthContext: Auth change - user exists:", session.user.id);
+                console.log("AuthContext: Setting user from auth event:", session.user.id);
                 setUser(enrichUser(session.user));
                 setIsLoading(false);
                 fetchProfile(session.user);
             } else {
-                console.log("AuthContext: Auth change - no user");
+                console.log("AuthContext: No user in auth event.");
                 setUser(null);
                 setIsLoading(false);
             }
         });
 
         return () => {
-            console.log("AuthContext: cleanup - unsubscribing");
             subscription.unsubscribe();
         };
     }, [fetchProfile, enrichUser]);
 
     const logout = async () => {
-        console.log("AuthContext: logout() called");
+        console.log("AuthContext: logout initiating...");
         try {
             await supabase.auth.signOut();
             setUser(null);
         } catch (e) {
-            console.error("AuthContext: Logout error:", e);
+            console.error("AuthContext: Logout failed:", e);
         }
     };
 
