@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { supabase } from './supabase';
 import { User as SupabaseUser } from '@supabase/supabase-js';
 import { withTimeout } from './timeout';
@@ -16,6 +16,7 @@ interface AuthContextType {
     login: (email: string) => Promise<void>;
     logout: () => Promise<void>;
     signup: (name: string, email: string) => Promise<void>;
+    refreshProfile: () => Promise<void>;
     isLoading: boolean;
 }
 
@@ -25,13 +26,61 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const [user, setUser] = useState<User | null>(null);
     const [isLoading, setIsLoading] = useState(true);
 
+    const fetchProfile = useCallback(async (currentUser: SupabaseUser, retryCount = 0) => {
+        console.log(`AuthContext: fetchProfile() starting for: ${currentUser.id} (attempt ${retryCount + 1})`);
+        try {
+            const response = await withTimeout(
+                (async () => {
+                    return await supabase
+                        .from('profiles')
+                        .select('*')
+                        .eq('id', currentUser.id)
+                        .maybeSingle();
+                })(),
+                "Fetch Profile"
+            );
+
+            if (response.error) {
+                console.error("AuthContext: Profile fetch error:", response.error);
+            } else if (response.data) {
+                const profile = response.data;
+                console.log("AuthContext: Profile found, updating user state enriched");
+                setUser({
+                    ...currentUser,
+                    name: profile.full_name,
+                    avatar: profile.avatar_url,
+                    familyId: profile.family_id
+                });
+                return true;
+            } else {
+                console.log("AuthContext: No profile found for user in DB.");
+                // If it's a fresh signup, the trigger might still be running. Retry once after delay.
+                if (retryCount < 2) {
+                    console.log("AuthContext: Retrying profile fetch in 2s...");
+                    await new Promise(resolve => setTimeout(resolve, 2000));
+                    return await fetchProfile(currentUser, retryCount + 1);
+                }
+            }
+        } catch (e) {
+            console.error("AuthContext: Unexpected error fetching profile:", e);
+        }
+        return false;
+    }, []);
+
+    const refreshProfile = useCallback(async () => {
+        console.log("AuthContext: refreshProfile() called");
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session?.user) {
+            await fetchProfile(session.user);
+        }
+    }, [fetchProfile]);
+
     useEffect(() => {
         console.log("AuthContext: useEffect [init] starting...");
 
         const checkSession = async () => {
             console.log("AuthContext: checkSession() starting...");
             try {
-                // Wrap in IIFE to ensure proper Promise type for withTimeout
                 const response = await withTimeout(
                     (async () => {
                         return await supabase.auth.getSession();
@@ -61,39 +110,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             }
         };
 
-        const fetchProfile = async (currentUser: SupabaseUser) => {
-            console.log("AuthContext: fetchProfile() starting for:", currentUser.id);
-            try {
-                const response = await withTimeout(
-                    (async () => {
-                        return await supabase
-                            .from('profiles')
-                            .select('*')
-                            .eq('id', currentUser.id)
-                            .maybeSingle();
-                    })(),
-                    "Fetch Profile"
-                );
-
-                if (response.error) {
-                    console.error("AuthContext: Profile fetch error:", response.error);
-                } else if (response.data) {
-                    const profile = response.data;
-                    console.log("AuthContext: Profile found, updating user state enriched");
-                    setUser({
-                        ...currentUser,
-                        name: profile.full_name,
-                        avatar: profile.avatar_url,
-                        familyId: profile.family_id
-                    });
-                } else {
-                    console.log("AuthContext: No profile found for user in DB.");
-                }
-            } catch (e) {
-                console.error("AuthContext: Unexpected error fetching profile:", e);
-            }
-        };
-
         checkSession();
 
         const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
@@ -115,7 +131,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             console.log("AuthContext: cleanup - unsubscribing");
             subscription.unsubscribe();
         };
-    }, []);
+    }, [fetchProfile]);
 
     const logout = async () => {
         console.log("AuthContext: logout() called");
@@ -133,6 +149,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             login: async () => { },
             logout,
             signup: async () => { },
+            refreshProfile,
             isLoading
         }}>
             {children}

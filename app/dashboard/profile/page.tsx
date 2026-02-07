@@ -10,47 +10,62 @@ import { Camera, Save } from 'lucide-react';
 import styles from './page.module.css';
 
 export default function ProfilePage() {
-    const { user } = useAuth();
+    const { user, refreshProfile } = useAuth();
     const [isEditing, setIsEditing] = useState(false);
     const [name, setName] = useState('');
     const [status, setStatus] = useState('');
     const [loading, setLoading] = useState(false);
 
+    // Initial load from state
     useEffect(() => {
         if (user) {
-            if (user.name && user.name !== name) {
-                setName(user.name);
-            }
-            const fetchProfile = async () => {
-                const { data } = await supabase
-                    .from('profiles')
-                    .select('status_message')
-                    .eq('id', user.id)
-                    .single();
-                if (data) setStatus(data.status_message || '');
-            };
-            fetchProfile();
+            setName(user.name || '');
         }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [user]);
+
+    // Fetch latest status separately or via AuthContext if we extend it
+    useEffect(() => {
+        if (user) {
+            const fetchExtra = async () => {
+                const { data, error } = await supabase
+                    .from('profiles')
+                    .select('status_message, full_name')
+                    .eq('id', user.id)
+                    .maybeSingle();
+
+                if (data) {
+                    setStatus(data.status_message || '');
+                    if (data.full_name) setName(data.full_name);
+                }
+                if (error) console.error("Error fetching profile extra info:", error);
+            };
+            fetchExtra();
+        }
     }, [user]);
 
     const handleSave = async () => {
         if (!user) return;
         setLoading(true);
 
-        const { error } = await supabase
-            .from('profiles')
-            .update({ full_name: name, status_message: status })
-            .eq('id', user.id);
+        try {
+            const { error } = await supabase
+                .from('profiles')
+                .update({
+                    full_name: name,
+                    status_message: status
+                })
+                .eq('id', user.id);
 
-        setLoading(false);
-        setIsEditing(false);
+            if (error) throw error;
 
-        if (error) {
-            alert('저장 실패: ' + error.message);
-        } else {
-            alert('프로필이 업데이트되었습니다.');
-            window.location.reload();
+            // Sync with AuthContext instead of reloading page
+            await refreshProfile();
+            alert('프로필이 성공적으로 업데이트되었습니다.');
+            setIsEditing(false);
+        } catch (error: any) {
+            alert('저장 실패: ' + (error.message || "알 수 없는 오류"));
+        } finally {
+            setLoading(false);
         }
     };
 
@@ -72,7 +87,7 @@ export default function ProfilePage() {
                     </div>
                     {!isEditing ? (
                         <div style={{ textAlign: 'center' }}>
-                            <h1 style={{ fontSize: '1.5rem', fontWeight: 700 }}>{name}</h1>
+                            <h1 style={{ fontSize: '1.5rem', fontWeight: 700 }}>{user?.name || '본인 이름을 설정해주세요'}</h1>
                             <p style={{ color: 'var(--muted-foreground)' }}>{user?.email}</p>
                             <p style={{ marginTop: '0.5rem' }}>{status || '상태 메시지가 없습니다.'}</p>
                         </div>
@@ -83,8 +98,8 @@ export default function ProfilePage() {
                     <div className={styles.form}>
                         <div className={styles.section}>
                             <h2 className={styles.sectionTitle}>개인 정보</h2>
-                            <Input label="이름" value={name} onChange={(e) => setName(e.target.value)} />
-                            <Input label="상태 메시지" value={status} onChange={(e) => setStatus(e.target.value)} />
+                            <Input label="이름" value={name} onChange={(e) => setName(e.target.value)} placeholder="실명을 입력해주세요" />
+                            <Input label="상태 메시지" value={status} onChange={(e) => setStatus(e.target.value)} placeholder="오늘 기분은 어떠신가요?" />
                         </div>
 
                         <div style={{ display: 'flex', gap: '1rem', justifyContent: 'flex-end', marginTop: '1rem' }}>
@@ -104,11 +119,16 @@ export default function ProfilePage() {
                 <h3>나의 가족</h3>
                 <p>
                     {user?.familyId ? (
-                        <>가족 그룹에 합류되어 있습니다.</>
+                        <span style={{ color: 'var(--primary)', fontWeight: 600 }}>가족 그룹에 합류되어 있습니다!</span>
                     ) : (
                         <span style={{ color: 'var(--muted-foreground)' }}>아직 가족 그룹에 속해있지 않습니다.</span>
                     )}
                 </p>
+                {!user?.familyId && (
+                    <p style={{ fontSize: '0.85rem', color: 'var(--muted-foreground)', marginTop: '0.5rem' }}>
+                        가입 시 코드를 입력하지 않으셨다면, 로그아웃 후 다시 가입하거나 관리자에게 문의하세요.
+                    </p>
+                )}
             </div>
         </div>
     );

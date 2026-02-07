@@ -53,6 +53,10 @@ export default function SignupPage() {
             if (!user) throw new Error("계정 생성에 실패했습니다 (User data null)");
             console.log("Signup: Auth user created:", user.id);
 
+            // Wait a bit for the profile trigger to run
+            console.log("Signup: Waiting for profile creation trigger...");
+            await new Promise(resolve => setTimeout(resolve, 1500));
+
             // 2. Family Logic
             if (step === 'CREATE_FAMILY') {
                 console.log("Signup: Creating new family:", familyName);
@@ -79,7 +83,7 @@ export default function SignupPage() {
                     (async () => {
                         return await supabase
                             .from('profiles')
-                            .update({ family_id: newFamily.id })
+                            .update({ family_id: newFamily.id, full_name: name })
                             .eq('id', user.id);
                     })(),
                     "Updating Profile (Family ID)"
@@ -110,7 +114,7 @@ export default function SignupPage() {
                     (async () => {
                         return await supabase
                             .from('profiles')
-                            .update({ family_id: family.id })
+                            .update({ family_id: family.id, full_name: name })
                             .eq('id', user.id);
                     })(),
                     "Updating Profile (Join Family)"
@@ -119,7 +123,7 @@ export default function SignupPage() {
             }
 
             console.log("Signup: All operations finished successfully!");
-            alert('회원가입 완료! 이제 로그인할 수 있습니다.');
+            alert('회원가입이 완료되었습니다! 이제 로그인하여 가족 공간을 확인해보세요.');
             router.push('/login');
 
         } catch (error: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
