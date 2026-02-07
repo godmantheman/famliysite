@@ -1,0 +1,103 @@
+.container {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+    height: 100%;
+}
+
+.header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.title {
+    font-size: 1.5rem;
+    font-weight: 700;
+}
+
+.tabs {
+    display: flex;
+    gap: 1rem;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 0.5rem;
+}
+
+.tab {
+    padding: 0.5rem 1rem;
+    font-weight: 500;
+    cursor: pointer;
+    border-radius: var(--radius);
+    transition: background-color 0.2s;
+    color: var(--muted-foreground);
+}
+
+.activeTab {
+    background-color: var(--primary);
+    color: var(--primary-foreground);
+}
+
+.listContainer {
+    flex: 1;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.todoItem {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 1rem;
+    background-color: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    transition: all 0.2s;
+}
+
+.completed {
+    opacity: 0.6;
+    background-color: var(--background);
+}
+
+.checkbox {
+    width: 1.5rem;
+    height: 1.5rem;
+    border: 2px solid var(--muted-foreground);
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.checked {
+    background-color: var(--primary);
+    border-color: var(--primary);
+    color: white;
+}
+
+.itemContent {
+    flex: 1;
+}
+
+.itemText {
+    font-size: 1rem;
+    font-weight: 500;
+}
+
+.itemMeta {
+    font-size: 0.75rem;
+    color: var(--muted-foreground);
+}
+
+.addForm {
+    display: flex;
+    gap: 1rem;
+    padding: 1rem;
+    background-color: var(--card);
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+}

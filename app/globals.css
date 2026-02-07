@@ -1,0 +1,94 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+:root {
+  /* Warm Family Palette */
+  --background: #FFF9F5; /* Cream/Warm White */
+  --foreground: #4A4A4A; /* Soft Black */
+  
+  --primary: #FF8BA7; /* Soft Pink/Coral */
+  --primary-foreground: #FFFFFF;
+  
+  --secondary: #FFC6C6; /* Lighter Pink */
+  --secondary-foreground: #4A4A4A;
+  
+  --accent: #FAEEE7; /* Beige/Sand */
+  --accent-foreground: #4A4A4A;
+
+  --muted: #F2E3DB;
+  --muted-foreground: #8D8D8D;
+
+  --card: #FFFFFF;
+  --card-foreground: #4A4A4A;
+
+  --border: #F2E3DB;
+  --input: #F2E3DB;
+  
+  --radius: 1rem;
+  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+  --shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+  --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #1A1515; /* Warm Dark */
+    --foreground: #FAEEE7;
+    
+    --primary: #FF8BA7;
+    --primary-foreground: #FFFFFF;
+    
+    --secondary: #4A2B2B;
+    --secondary-foreground: #FAEEE7;
+    
+    --accent: #2C2424;
+    --accent-foreground: #FAEEE7;
+    
+    --muted: #2C2424;
+    --muted-foreground: #A1A1A1;
+    
+    --card: #241E1E;
+    --card-foreground: #FAEEE7;
+    
+    --border: #2C2424;
+    --input: #2C2424;
+  }
+}
+
+* {
+  box-sizing: border-box;
+  padding: 0;
+  margin: 0;
+}
+
+body {
+  font-family: 'Inter', sans-serif;
+  background-color: var(--background);
+  color: var(--foreground);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+/* Utilities */
+.container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 1rem;
+}
+
+.flex { display: flex; }
+.flex-col { flex-direction: column; }
+.items-center { align-items: center; }
+.justify-center { justify-content: center; }
+.justify-between { justify-content: space-between; }
+.gap-2 { gap: 0.5rem; }
+.gap-4 { gap: 1rem; }
+.w-full { width: 100%; }
+.h-full { height: 100%; }
+.h-screen { height: 100vh; }
+.rounded-lg { border-radius: var(--radius); }
+.shadow-lg { box-shadow: var(--shadow-lg); }
