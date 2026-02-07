@@ -5,15 +5,16 @@ import { useAuth } from '@/lib/auth-context';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Send, Image as ImageIcon } from 'lucide-react';
+import { supabase } from '@/lib/supabase';
 import styles from './page.module.css';
 import { clsx } from 'clsx';
 
 interface Message {
     id: string;
     text: string;
-    senderId: string;
-    senderName: string;
-    timestamp: Date;
+    senderId: string; // mapped from user_id
+    senderName: string; // will need to join with profiles
+    timestamp: Date; // mapped from created_at
     avatar?: string;
 }
 
@@ -31,34 +32,102 @@ export default function ChatPage() {
         scrollToBottom();
     }, [messages]);
 
-    const handleSend = (e: React.FormEvent) => {
-        e.preventDefault();
-        if (!inputText.trim() || !user) return;
+    // Fetch initial messages
+    useEffect(() => {
+        if (!user?.familyId) return;
 
-        const newMessage: Message = {
-            id: Date.now().toString(),
-            text: inputText,
-            senderId: user.id,
-            senderName: user.name,
-            timestamp: new Date(),
-            avatar: user.avatar,
+        const fetchMessages = async () => {
+            const { data, error } = await supabase
+                .from('messages')
+                .select(`
+                id,
+                text,
+                created_at,
+                user_id,
+                profiles (
+                    name,
+                    avatar_url
+                )
+            `)
+                .eq('family_id', user.familyId)
+                .order('created_at', { ascending: true });
+
+            if (error) {
+                console.error('Error fetching messages:', error);
+            } else if (data) {
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                const formattedMessages: Message[] = data.map((msg: any) => ({
+                    id: msg.id,
+                    text: msg.text,
+                    senderId: msg.user_id,
+                    senderName: msg.profiles?.name || 'Unknown',
+                    timestamp: new Date(msg.created_at),
+                    avatar: msg.profiles?.avatar_url
+                }));
+                setMessages(formattedMessages);
+            }
         };
 
-        setMessages([...messages, newMessage]);
-        setInputText('');
+        fetchMessages();
 
-        // Simulate reply
-        setTimeout(() => {
-            const reply: Message = {
-                id: (Date.now() + 1).toString(),
-                text: '좋아요! (자동 응답)',
-                senderId: 'ai',
-                senderName: '가족 도우미',
-                timestamp: new Date(),
-                avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Helper'
-            };
-            setMessages(prev => [...prev, reply]);
-        }, 1500);
+        // Subscribe to new messages
+        const channel = supabase
+            .channel('family_chat')
+            .on(
+                'postgres_changes',
+                {
+                    event: 'INSERT',
+                    schema: 'public',
+                    table: 'messages',
+                    filter: `family_id=eq.${user.familyId}`
+                },
+                async (payload) => {
+                    // Fetch sender profile for the new message
+                    const { data: profile } = await supabase
+                        .from('profiles')
+                        .select('name, avatar_url')
+                        .eq('id', payload.new.user_id)
+                        .single();
+
+                    const newMessage: Message = {
+                        id: payload.new.id,
+                        text: payload.new.text,
+                        senderId: payload.new.user_id,
+                        senderName: profile?.name || 'Unknown',
+                        timestamp: new Date(payload.new.created_at),
+                        avatar: profile?.avatar_url
+                    };
+
+                    setMessages((prev) => [...prev, newMessage]);
+                }
+            )
+            .subscribe();
+
+        return () => {
+            supabase.removeChannel(channel);
+        };
+    }, [user?.familyId]);
+
+    const handleSend = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!inputText.trim() || !user || !user.familyId) return;
+
+        const textToSend = inputText;
+        setInputText(''); // Clear input immediately for better UX
+
+        const { error } = await supabase
+            .from('messages')
+            .insert({
+                family_id: user.familyId,
+                user_id: user.id,
+                text: textToSend
+            });
+
+        if (error) {
+            console.error('Error sending message:', error);
+            alert('메시지 전송 실패');
+            setInputText(textToSend); // Restore text on failure
+        }
     };
 
     return (
@@ -84,7 +153,12 @@ export default function ChatPage() {
                 </div>
 
                 <div className={styles.messageList}>
-                    {messages.length === 0 && (
+                    {!user?.familyId && (
+                        <div style={{ textAlign: 'center', marginTop: '2rem', padding: '1rem', background: '#fff3cd', borderRadius: '8px' }}>
+                            ⚠️ 가족 그룹에 속해있지 않습니다. 초대 코드를 통해 가족에 합류하거나 새로운 가족을 생성해주세요.
+                        </div>
+                    )}
+                    {messages.length === 0 && user?.familyId && (
                         <div style={{ textAlign: 'center', marginTop: '2rem', color: 'var(--muted-foreground)' }}>
                             첫 메시지를 보내보세요! 👋
                         </div>
@@ -114,8 +188,9 @@ export default function ChatPage() {
                         onChange={(e) => setInputText(e.target.value)}
                         placeholder="메시지를 입력하세요..."
                         className={styles.chatInput}
+                        disabled={!user?.familyId}
                     />
-                    <Button type="submit" size="icon"><Send size={18} /></Button>
+                    <Button type="submit" size="icon" disabled={!user?.familyId}><Send size={18} /></Button>
                 </form>
             </div>
         </div>

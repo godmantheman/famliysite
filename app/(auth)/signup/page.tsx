@@ -6,15 +6,14 @@ import { useRouter } from 'next/navigation';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { useAuth } from '@/lib/auth-context';
-import styles from '../login/page.module.css'; // Reuse login styles
+import { supabase } from '@/lib/supabase';
+import styles from '../login/page.module.css';
 
 export default function SignupPage() {
     const [name, setName] = useState('');
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [familyCode, setFamilyCode] = useState('');
-    const { signup } = useAuth();
     const router = useRouter();
     const [loading, setLoading] = useState(false);
 
@@ -23,9 +22,69 @@ export default function SignupPage() {
         if (!email || !name || !password) return;
 
         setLoading(true);
-        await signup(name, email);
+
+        // 1. Sign up with Supabase
+        const { data: authData, error: authError } = await supabase.auth.signUp({
+            email,
+            password,
+            options: {
+                data: {
+                    full_name: name,
+                    avatar_url: `https://api.dicebear.com/7.x/avataaars/svg?seed=${email}`
+                }
+            }
+        });
+
+        if (authError) {
+            alert('회원가입 실패: ' + authError.message);
+            setLoading(false);
+            return;
+        }
+
+        // 2. If family code provided, join family (Optional for now, requires more logic)
+        // For this step, we just rely on the trigger to create the profile.
+        // Joining a family can be done after signup or we can add logic here if we had an API endpoint or RLS allowed it.
+        // Since RLS for profiles allows update by own user, we can update family_id if the user exists.
+
+        if (familyCode && authData.user) {
+            // Find family by code
+            const { data: families } = await supabase
+                .from('families')
+                .select('id')
+                .eq('invite_code', familyCode)
+                .single();
+
+            if (families) {
+                await supabase
+                    .from('profiles')
+                    .update({ family_id: families.id })
+                    .eq('id', authData.user.id);
+            } else {
+                console.warn("Family code not found or invalid");
+            }
+        } else if (authData.user) {
+            // Create a new family if no code? Or just leave it null?
+            // Let's create a new family for the user automatically if no code
+            const { data: newFamily } = await supabase
+                .from('families')
+                .insert({
+                    name: `${name}네 가족`,
+                    invite_code: Math.random().toString(36).substring(2, 8).toUpperCase()
+                })
+                .select()
+                .single();
+
+            if (newFamily) {
+                await supabase
+                    .from('profiles')
+                    .update({ family_id: newFamily.id })
+                    .eq('id', authData.user.id);
+            }
+        }
+
         setLoading(false);
-        router.push('/dashboard');
+        alert('회원가입이 완료되었습니다! 로그인해주세요.');
+        router.push('/login');
     };
 
     return (

@@ -1,21 +1,21 @@
 'use client';
 
 import React, { createContext, useContext, useState, useEffect } from 'react';
+import { supabase } from './supabase';
+import { User as SupabaseUser } from '@supabase/supabase-js';
 
-// Mock User Type
-export interface User {
-    id: string;
-    name: string;
-    email: string;
-    familyId?: string;
+// Extend Supabase User with our custom profile fields
+export interface User extends SupabaseUser {
+    name?: string;
     avatar?: string;
+    familyId?: string;
 }
 
 interface AuthContextType {
     user: User | null;
-    login: (email: string) => Promise<void>;
-    logout: () => void;
-    signup: (name: string, email: string) => Promise<void>;
+    login: (email: string) => Promise<void>; // Modified for Magic Link for simplicity or we can update Login page for password
+    logout: () => Promise<void>;
+    signup: (name: string, email: string) => Promise<void>; // Adjusted signature
     isLoading: boolean;
 }
 
@@ -26,62 +26,74 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const [isLoading, setIsLoading] = useState(true);
 
     useEffect(() => {
-        // Check local storage for existing session
-        const storedUser = localStorage.getItem('family_app_user');
-        if (storedUser) {
-            try {
-                // eslint-disable-next-line react-hooks/exhaustive-deps
-                setUser(JSON.parse(storedUser));
-            } catch (e) {
-                console.error("Failed to parse user from local storage", e)
+        // Check active session
+        const checkSession = async () => {
+            const { data: { session } } = await supabase.auth.getSession();
+            if (session?.user) {
+                // Fetch additional profile data
+                const { data: profile } = await supabase
+                    .from('profiles')
+                    .select('*')
+                    .eq('id', session.user.id)
+                    .single();
+
+                setUser({
+                    ...session.user,
+                    name: profile?.full_name,
+                    avatar: profile?.avatar_url,
+                    familyId: profile?.family_id
+                });
+            } else {
+                setUser(null);
             }
-        }
-        setIsLoading(false);
+            setIsLoading(false);
+        };
+
+        checkSession();
+
+        // Listen for auth changes
+        const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+            if (session?.user) {
+                const { data: profile } = await supabase
+                    .from('profiles')
+                    .select('*')
+                    .eq('id', session.user.id)
+                    .single();
+
+                setUser({
+                    ...session.user,
+                    name: profile?.full_name,
+                    avatar: profile?.avatar_url,
+                    familyId: profile?.family_id
+                });
+            } else {
+                setUser(null);
+            }
+            setIsLoading(false);
+        });
+
+        return () => subscription.unsubscribe();
     }, []);
 
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const login = async (email: string) => {
-        setIsLoading(true);
-        // Simulate API call
-        await new Promise((resolve) => setTimeout(resolve, 1000));
-
-        // Mock user data
-        const mockUser: User = {
-            id: '1',
-            name: email.split('@')[0] || 'Family Member',
-            email,
-            familyId: 'family_123',
-            avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${email}`
-        };
-
-        setUser(mockUser);
-        localStorage.setItem('family_app_user', JSON.stringify(mockUser));
-        setIsLoading(false);
+        // ... implementation
+        throw new Error("Use supabase.auth.signInWithPassword directly or update this method");
     };
 
-    const signup = async (name: string, email: string) => {
-        setIsLoading(true);
-        await new Promise((resolve) => setTimeout(resolve, 1000));
-
-        const mockUser: User = {
-            id: Math.random().toString(36).substr(2, 9),
-            name,
-            email,
-            familyId: 'family_123', // Default to a new family or existing one
-            avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${email}`
-        };
-
-        setUser(mockUser);
-        localStorage.setItem('family_app_user', JSON.stringify(mockUser));
-        setIsLoading(false);
-    };
-
-    const logout = () => {
+    const logout = async () => {
+        await supabase.auth.signOut();
         setUser(null);
-        localStorage.removeItem('family_app_user');
+    };
+
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const signup = async (name: string, email: string) => {
+        // ... implementation
     };
 
     return (
-        <AuthContext.Provider value={{ user, login, logout, signup, isLoading }}>
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        <AuthContext.Provider value={{ user, login, logout: logout as any, signup: signup as any, isLoading }}>
             {children}
         </AuthContext.Provider>
     );

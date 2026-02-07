@@ -1,9 +1,11 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Upload } from 'lucide-react';
 import styles from './page.module.css';
+import { supabase } from '@/lib/supabase';
+import { useAuth } from '@/lib/auth-context';
 
 interface Photo {
     id: number;
@@ -13,30 +15,67 @@ interface Photo {
     author: string;
 }
 
-const MOCK_PHOTOS: Photo[] = [];
 
 export default function PhotosPage() {
-    const [photos, setPhotos] = useState<Photo[]>(MOCK_PHOTOS);
+    const { user } = useAuth();
+    const [photos, setPhotos] = useState<Photo[]>([]);
 
-    const handleUpload = () => {
+    useEffect(() => {
+        if (!user?.familyId) return;
+
+        const fetchPhotos = async () => {
+            const { data } = await supabase
+                .from('photos')
+                .select('*')
+                .eq('family_id', user.familyId)
+                .order('created_at', { ascending: false });
+
+            if (data) {
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                setPhotos(data.map((p: any) => ({
+                    id: p.id,
+                    url: p.url,
+                    title: p.title,
+                    date: new Date(p.created_at).toISOString().split('T')[0],
+                    author: '가족' // In real app, join with profiles
+                })));
+            }
+        };
+        fetchPhotos();
+
+        const channel = supabase
+            .channel('photos')
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'photos', filter: `family_id=eq.${user.familyId}` }, () => fetchPhotos())
+            .subscribe();
+
+        return () => { supabase.removeChannel(channel); };
+    }, [user?.familyId]);
+
+
+    const handleUpload = async () => {
+        if (!user?.familyId) return;
         const title = prompt('사진 설명을 입력하세요:');
         if (title) {
-            const newPhoto: Photo = {
-                id: Date.now(),
-                url: `https://picsum.photos/seed/${Date.now()}/400/400`,
-                title,
-                date: new Date().toISOString().split('T')[0],
-                author: '나'
-            };
-            setPhotos([newPhoto, ...photos]);
+            // In a real app, we would upload to storage here.
+            // For now, we simulate by inserting a random URL
+            const randomUrl = `https://picsum.photos/seed/${Date.now()}/400/400`;
+
+            await supabase.from('photos').insert({
+                family_id: user.familyId,
+                user_id: user.id,
+                url: randomUrl,
+                title
+            });
+            // Optimistic update handled by realtime subscription or we could do it here
         }
     };
+
 
     return (
         <div className={styles.container}>
             <div className={styles.header}>
                 <h1 className={styles.title}>가족 앨범</h1>
-                <Button onClick={handleUpload}>
+                <Button onClick={handleUpload} disabled={!user?.familyId}>
                     <Upload size={18} style={{ marginRight: '8px' }} /> 사진 업로드
                 </Button>
             </div>

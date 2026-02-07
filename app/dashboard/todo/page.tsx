@@ -1,12 +1,13 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { useAuth } from '@/lib/auth-context';
 import { Button } from '@/components/ui/button';
+import { supabase } from '@/lib/supabase';
 import { Input } from '@/components/ui/input';
 import { Check, Plus, Trash2 } from 'lucide-react';
 import styles from './page.module.css';
 import { clsx } from 'clsx';
-import { useAuth } from '@/lib/auth-context';
 
 interface Todo {
     id: number;
@@ -22,32 +23,113 @@ export default function TodoPage() {
     const [todos, setTodos] = useState<Todo[]>([]);
     const [newTodo, setNewTodo] = useState('');
 
+    // Fetch Todos
+    useEffect(() => {
+        if (!user?.id) return; // Ensure user is loaded
+
+        const fetchTodos = async () => {
+            const { data, error } = await supabase
+                .from('todos')
+                .select('*')
+                .or(`family_id.eq.${user.familyId},type.eq.personal&user_id.eq.${user.id}`)
+                .order('created_at', { ascending: false });
+
+            if (error) {
+                console.error('Error fetching todos:', error);
+            }
+
+            if (data) {
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                const formattedTodos: Todo[] = data.map((t: any) => ({
+                    id: t.id,
+                    text: t.text,
+                    completed: t.is_completed,
+                    type: t.type,
+                    assignee: t.assignee_name
+                }));
+                setTodos(formattedTodos);
+            }
+        };
+
+        fetchTodos();
+
+        // Subscribe
+        const channel = supabase
+            .channel('todos')
+            .on(
+                'postgres_changes',
+                { event: '*', schema: 'public', table: 'todos' },
+                () => {
+                    // Simplified refresh for now, or handle specific events
+                    fetchTodos();
+                }
+            )
+            .subscribe();
+
+        return () => { supabase.removeChannel(channel); };
+    }, [user?.familyId, user?.id]);
+
+
     const filteredTodos = todos.filter(todo => todo.type === activeTab);
 
-    const toggleTodo = (id: number) => {
+    const toggleTodo = async (id: number) => {
+        // Optimistic update
         setTodos(todos.map(todo =>
             todo.id === id ? { ...todo, completed: !todo.completed } : todo
         ));
+
+        const todoToUpdate = todos.find(t => t.id === id);
+        if (!todoToUpdate) return;
+
+        await supabase
+            .from('todos')
+            .update({ is_completed: !todoToUpdate.completed })
+            .eq('id', id);
     };
 
-    const deleteTodo = (id: number) => {
+    const deleteTodo = async (id: number) => {
+        // Optimistic update
         setTodos(todos.filter(todo => todo.id !== id));
+
+        await supabase.from('todos').delete().eq('id', id);
     };
 
-    const handleAdd = (e: React.FormEvent) => {
+    const handleAdd = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!newTodo.trim()) return;
+        if (!newTodo.trim() || !user) return;
 
-        const todo: Todo = {
-            id: Date.now(),
+        const todoData = {
+            family_id: activeTab === 'shared' ? user.familyId : null, // Only assign familyId if shared
+            user_id: user.id,
             text: newTodo,
-            completed: false,
             type: activeTab,
-            assignee: user?.name,
+            assignee_name: user.name,
+            is_completed: false
         };
 
-        setTodos([...todos, todo]);
-        setNewTodo('');
+        const { data, error } = await supabase
+            .from('todos')
+            .insert(todoData)
+            .select()
+            .single();
+
+        if (error) {
+            console.error('Error adding todo:', error);
+            // Revert optimistic update or show error
+            return;
+        }
+
+        if (data) {
+            const newTodoItem: Todo = {
+                id: data.id,
+                text: data.text,
+                completed: data.is_completed,
+                type: data.type,
+                assignee: data.assignee_name
+            };
+            setTodos([newTodoItem, ...todos]);
+            setNewTodo('');
+        }
     };
 
     return (
@@ -72,6 +154,11 @@ export default function TodoPage() {
             </div>
 
             <div className={styles.listContainer}>
+                {!user?.familyId && activeTab === 'shared' && (
+                    <div style={{ textAlign: 'center', padding: '1rem', background: '#fff3cd', borderRadius: '8px', marginBottom: '1rem', color: '#856404' }}>
+                        가족 그룹에 합류하면 &apos;가족 공유&apos; 기능을 사용할 수 있습니다.
+                    </div>
+                )}
                 {filteredTodos.length === 0 && (
                     <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--muted-foreground)' }}>
                         등록된 할 일이 없습니다.
@@ -109,8 +196,9 @@ export default function TodoPage() {
                     onChange={(e) => setNewTodo(e.target.value)}
                     className="flex-1"
                     style={{ width: '100%' }}
+                    disabled={activeTab === 'shared' && !user?.familyId}
                 />
-                <Button type="submit">
+                <Button type="submit" disabled={activeTab === 'shared' && !user?.familyId}>
                     <Plus size={18} style={{ marginRight: '8px' }} /> 추가
                 </Button>
             </form>

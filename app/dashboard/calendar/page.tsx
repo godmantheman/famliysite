@@ -1,13 +1,16 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { format, startOfMonth, endOfMonth, startOfWeek, endOfWeek, eachDayOfInterval, isSameMonth, isToday, addMonths, subMonths } from 'date-fns';
 import { Button } from '@/components/ui/button';
+import { supabase } from '@/lib/supabase';
+import { useAuth } from '@/lib/auth-context';
 import { ChevronLeft, ChevronRight, Plus } from 'lucide-react';
 import styles from './page.module.css';
 import { clsx } from 'clsx';
 
 export default function CalendarPage() {
+    const { user } = useAuth();
     const [currentDate, setCurrentDate] = useState(new Date());
 
     const monthStart = startOfMonth(currentDate);
@@ -18,17 +21,53 @@ export default function CalendarPage() {
     const calendarDays = eachDayOfInterval({ start: startDate, end: endDate });
     const weekDays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
-    // Mock events
+    // Events
     const [events, setEvents] = useState<{ id: number, date: string, title: string }[]>([]);
+
+    useEffect(() => {
+        if (!user?.familyId) return;
+
+        const fetchEvents = async () => {
+            const { data } = await supabase
+                .from('events')
+                .select('*')
+                .eq('family_id', user.familyId);
+
+            if (data) {
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                setEvents(data.map((e: any) => ({
+                    id: e.id,
+                    date: new Date(e.event_date).toDateString(),
+                    title: e.title
+                })));
+            }
+        };
+        fetchEvents();
+
+        const channel = supabase
+            .channel('calendar')
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'events', filter: `family_id=eq.${user.familyId}` }, () => fetchEvents())
+            .subscribe();
+
+        return () => { supabase.removeChannel(channel); };
+    }, [user?.familyId]);
 
     const handlePrevMonth = () => setCurrentDate(subMonths(currentDate, 1));
     const handleNextMonth = () => setCurrentDate(addMonths(currentDate, 1));
 
-    const handleDateClick = (date: Date) => {
-        // Simple mock adding event
+    const handleDateClick = async (date: Date) => {
         const title = prompt('새로운 일정 제목을 입력하세요:');
-        if (title) {
-            setEvents([...events, { id: Date.now(), date: date.toDateString(), title }]);
+        if (title && user?.familyId) {
+            // Optimistic
+            const newEvent = { id: Date.now(), date: date.toDateString(), title };
+            setEvents([...events, newEvent]);
+
+            await supabase.from('events').insert({
+                family_id: user.familyId,
+                user_id: user.id,
+                title,
+                event_date: date.toISOString(),
+            });
         }
     };
 
@@ -39,7 +78,7 @@ export default function CalendarPage() {
                 <div style={{ display: 'flex', gap: '8px' }}>
                     <Button variant="ghost" size="icon" onClick={handlePrevMonth}><ChevronLeft /></Button>
                     <Button variant="ghost" size="icon" onClick={handleNextMonth}><ChevronRight /></Button>
-                    <Button onClick={() => handleDateClick(new Date())}><Plus size={16} style={{ marginRight: '4px' }} /> 일정 추가</Button>
+                    <Button onClick={() => handleDateClick(new Date())} disabled={!user?.familyId}><Plus size={16} style={{ marginRight: '4px' }} /> 일정 추가</Button>
                 </div>
             </div>
 

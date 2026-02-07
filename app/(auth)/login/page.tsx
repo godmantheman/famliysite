@@ -6,23 +6,32 @@ import { useRouter } from 'next/navigation';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { useAuth } from '@/lib/auth-context';
+import { supabase } from '@/lib/supabase';
 import styles from './page.module.css';
 
 export default function LoginPage() {
     const [email, setEmail] = useState('');
-    const { login } = useAuth();
+    const [password, setPassword] = useState('');
     const router = useRouter();
     const [loading, setLoading] = useState(false);
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!email) return;
+        if (!email || !password) return; // Updated condition
 
         setLoading(true);
-        await login(email);
+        const { error } = await supabase.auth.signInWithPassword({ // Changed to signInWithPassword
+            email,
+            password,
+        });
+
         setLoading(false);
-        router.push('/dashboard');
+
+        if (error) {
+            alert('로그인 실패: ' + error.message); // Added error handling
+        } else {
+            router.push('/dashboard');
+        }
     };
 
     return (
@@ -43,6 +52,8 @@ export default function LoginPage() {
                     label="비밀번호"
                     placeholder="비밀번호를 입력하세요"
                     type="password"
+                    value={password} // Added value prop
+                    onChange={(e) => setPassword(e.target.value)} // Added onChange handler
                     required
                 />
 
