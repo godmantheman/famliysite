@@ -28,34 +28,50 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     useEffect(() => {
         // Check active session
         const checkSession = async () => {
-            console.log("AuthContext: Checking session...");
+            console.log("AuthContext: Starting checkSession...");
             try {
-                const { data: { session } } = await supabase.auth.getSession();
-                console.log("AuthContext: Session found:", !!session);
+                const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+                if (sessionError) {
+                    console.error("AuthContext: getSession error:", sessionError);
+                    setIsLoading(false);
+                    return;
+                }
+
+                console.log("AuthContext: Session retrieved:", !!session);
                 if (session?.user) {
-                    console.log("AuthContext: Fetching profile for:", session.user.id);
-                    const { data: profile, error } = await supabase
+                    // Set basic user info first to unblock UI
+                    console.log("AuthContext: Setting basic user info for:", session.user.id);
+                    setUser(session.user);
+                    setIsLoading(false); // Unblock!
+
+                    // Then fetch profile in background
+                    console.log("AuthContext: Fetching profile in background...");
+                    const { data: profile, error: profileError } = await supabase
                         .from('profiles')
                         .select('*')
                         .eq('id', session.user.id)
-                        .single();
+                        .maybeSingle();
 
-                    if (error) console.error("AuthContext: Profile fetch error:", error);
-
-                    setUser({
-                        ...session.user,
-                        name: profile?.full_name,
-                        avatar: profile?.avatar_url,
-                        familyId: profile?.family_id
-                    });
+                    if (profileError) {
+                        console.error("AuthContext: Profile fetch error (bg):", profileError);
+                    } else if (profile) {
+                        console.log("AuthContext: Profile found, updating user state");
+                        setUser({
+                            ...session.user,
+                            name: profile.full_name,
+                            avatar: profile.avatar_url,
+                            familyId: profile.family_id
+                        });
+                    } else {
+                        console.log("AuthContext: No profile found for user");
+                    }
                 } else {
                     setUser(null);
+                    setIsLoading(false);
                 }
             } catch (e) {
-                console.error("AuthContext: Session check failed:", e);
-            } finally {
+                console.error("AuthContext: Unexpected error in checkSession:", e);
                 setIsLoading(false);
-                console.log("AuthContext: isLoading set to false (init)");
             }
         };
 
@@ -66,29 +82,38 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             console.log("AuthContext: onAuthStateChange event:", event);
             try {
                 if (session?.user) {
-                    console.log("AuthContext: Fetching profile on change for:", session.user.id);
+                    // Update user immediately
+                    setUser(session.user);
+                    // We don't necessarily need to set isLoading here if it's already false,
+                    // but if it's a fresh sign-in, we might want to ensure UI is ready.
+                    setIsLoading(false);
+
+                    console.log("AuthContext: Fetching profile on change...");
                     const { data: profile, error } = await supabase
                         .from('profiles')
                         .select('*')
                         .eq('id', session.user.id)
-                        .single();
+                        .maybeSingle();
 
-                    if (error) console.error("AuthContext: Profile fetch error (change):", error);
-
-                    setUser({
-                        ...session.user,
-                        name: profile?.full_name,
-                        avatar: profile?.avatar_url,
-                        familyId: profile?.family_id
-                    });
+                    if (error) {
+                        console.error("AuthContext: Profile fetch error (change):", error);
+                    } else if (profile) {
+                        console.log("AuthContext: Profile update on change success");
+                        setUser({
+                            ...session.user,
+                            name: profile.full_name,
+                            avatar: profile.avatar_url,
+                            familyId: profile.family_id
+                        });
+                    }
                 } else {
+                    console.log("AuthContext: No session on change, clearing user");
                     setUser(null);
+                    setIsLoading(false);
                 }
             } catch (e) {
                 console.error("AuthContext: Auth change handler failed:", e);
-            } finally {
                 setIsLoading(false);
-                console.log("AuthContext: isLoading set to false (change)");
             }
         });
 
