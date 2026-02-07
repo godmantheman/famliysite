@@ -28,48 +28,68 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     useEffect(() => {
         // Check active session
         const checkSession = async () => {
-            const { data: { session } } = await supabase.auth.getSession();
-            if (session?.user) {
-                // Fetch additional profile data
-                const { data: profile } = await supabase
-                    .from('profiles')
-                    .select('*')
-                    .eq('id', session.user.id)
-                    .single();
+            console.log("AuthContext: Checking session...");
+            try {
+                const { data: { session } } = await supabase.auth.getSession();
+                console.log("AuthContext: Session found:", !!session);
+                if (session?.user) {
+                    console.log("AuthContext: Fetching profile for:", session.user.id);
+                    const { data: profile, error } = await supabase
+                        .from('profiles')
+                        .select('*')
+                        .eq('id', session.user.id)
+                        .single();
 
-                setUser({
-                    ...session.user,
-                    name: profile?.full_name,
-                    avatar: profile?.avatar_url,
-                    familyId: profile?.family_id
-                });
-            } else {
-                setUser(null);
+                    if (error) console.error("AuthContext: Profile fetch error:", error);
+
+                    setUser({
+                        ...session.user,
+                        name: profile?.full_name,
+                        avatar: profile?.avatar_url,
+                        familyId: profile?.family_id
+                    });
+                } else {
+                    setUser(null);
+                }
+            } catch (e) {
+                console.error("AuthContext: Session check failed:", e);
+            } finally {
+                setIsLoading(false);
+                console.log("AuthContext: isLoading set to false (init)");
             }
-            setIsLoading(false);
         };
 
         checkSession();
 
         // Listen for auth changes
-        const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
-            if (session?.user) {
-                const { data: profile } = await supabase
-                    .from('profiles')
-                    .select('*')
-                    .eq('id', session.user.id)
-                    .single();
+        const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+            console.log("AuthContext: onAuthStateChange event:", event);
+            try {
+                if (session?.user) {
+                    console.log("AuthContext: Fetching profile on change for:", session.user.id);
+                    const { data: profile, error } = await supabase
+                        .from('profiles')
+                        .select('*')
+                        .eq('id', session.user.id)
+                        .single();
 
-                setUser({
-                    ...session.user,
-                    name: profile?.full_name,
-                    avatar: profile?.avatar_url,
-                    familyId: profile?.family_id
-                });
-            } else {
-                setUser(null);
+                    if (error) console.error("AuthContext: Profile fetch error (change):", error);
+
+                    setUser({
+                        ...session.user,
+                        name: profile?.full_name,
+                        avatar: profile?.avatar_url,
+                        familyId: profile?.family_id
+                    });
+                } else {
+                    setUser(null);
+                }
+            } catch (e) {
+                console.error("AuthContext: Auth change handler failed:", e);
+            } finally {
+                setIsLoading(false);
+                console.log("AuthContext: isLoading set to false (change)");
             }
-            setIsLoading(false);
         });
 
         return () => subscription.unsubscribe();
