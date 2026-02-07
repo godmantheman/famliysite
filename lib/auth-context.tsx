@@ -26,6 +26,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const [user, setUser] = useState<User | null>(null);
     const [isLoading, setIsLoading] = useState(true);
 
+    // Helper to enrich user with metadata fallback
+    const enrichUser = useCallback((currentUser: SupabaseUser, profileData?: any): User => {
+        return {
+            ...currentUser,
+            name: profileData?.full_name || currentUser.user_metadata?.full_name || currentUser.user_metadata?.name || '',
+            avatar: profileData?.avatar_url || currentUser.user_metadata?.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${currentUser.email}`,
+            familyId: profileData?.family_id || null
+        };
+    }, []);
+
     const fetchProfile = useCallback(async (currentUser: SupabaseUser, retryCount = 0) => {
         console.log(`AuthContext: fetchProfile() starting for: ${currentUser.id} (attempt ${retryCount + 1})`);
         try {
@@ -42,18 +52,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
             if (response.error) {
                 console.error("AuthContext: Profile fetch error:", response.error);
+                // Even on error, we should have set the basic user from session already, 
+                // but let's ensure it has at least metadata fallbacks
+                setUser(enrichUser(currentUser));
             } else if (response.data) {
                 const profile = response.data;
                 console.log("AuthContext: Profile found, updating user state enriched");
-                setUser({
-                    ...currentUser,
-                    name: profile.full_name,
-                    avatar: profile.avatar_url,
-                    familyId: profile.family_id
-                });
+                setUser(enrichUser(currentUser, profile));
                 return true;
             } else {
                 console.log("AuthContext: No profile found for user in DB.");
+                // Set fallback from metadata while we wait/retry
+                setUser(enrichUser(currentUser));
+
                 // If it's a fresh signup, the trigger might still be running. Retry once after delay.
                 if (retryCount < 2) {
                     console.log("AuthContext: Retrying profile fetch in 2s...");
@@ -63,9 +74,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             }
         } catch (e) {
             console.error("AuthContext: Unexpected error fetching profile:", e);
+            setUser(enrichUser(currentUser));
         }
         return false;
-    }, []);
+    }, [enrichUser]);
 
     const refreshProfile = useCallback(async () => {
         console.log("AuthContext: refreshProfile() called");
@@ -97,7 +109,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 console.log("AuthContext: Session exists:", !!session);
                 if (session?.user) {
                     console.log("AuthContext: Setting user state from session:", session.user.id);
-                    setUser(session.user);
+                    // Set initial state from metadata immediately
+                    setUser(enrichUser(session.user));
+                    // Fetch full profile (family_id etc) in background
                     fetchProfile(session.user);
                 } else {
                     setUser(null);
@@ -117,7 +131,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
             if (session?.user) {
                 console.log("AuthContext: Auth change - user exists:", session.user.id);
-                setUser(session.user);
+                setUser(enrichUser(session.user));
                 setIsLoading(false);
                 fetchProfile(session.user);
             } else {
@@ -131,7 +145,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             console.log("AuthContext: cleanup - unsubscribing");
             subscription.unsubscribe();
         };
-    }, [fetchProfile]);
+    }, [fetchProfile, enrichUser]);
 
     const logout = async () => {
         console.log("AuthContext: logout() called");

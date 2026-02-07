@@ -53,9 +53,8 @@ export default function SignupPage() {
             if (!user) throw new Error("계정 생성에 실패했습니다 (User data null)");
             console.log("Signup: Auth user created:", user.id);
 
-            // Wait a bit for the profile trigger to run
-            console.log("Signup: Waiting for profile creation trigger...");
-            await new Promise(resolve => setTimeout(resolve, 1500));
+            // Wait a bit for the profile trigger to run (optional but helpful for immediate fetch)
+            await new Promise(resolve => setTimeout(resolve, 1000));
 
             // 2. Family Logic
             if (step === 'CREATE_FAMILY') {
@@ -78,17 +77,25 @@ export default function SignupPage() {
                 if (!newFamily) throw new Error("가족 그룹 생성 결과가 없습니다.");
                 console.log("Signup: Family created:", newFamily.id, "Code:", code);
 
-                console.log("Signup: Linking user to family...");
+                console.log("Signup: Upserting user profile with family_id...");
+                // Use UPSERT instead of UPDATE to ensure the record exists
                 const profileResponse = await withTimeout(
                     (async () => {
                         return await supabase
                             .from('profiles')
-                            .update({ family_id: newFamily.id, full_name: name })
-                            .eq('id', user.id);
+                            .upsert({
+                                id: user.id,
+                                family_id: newFamily.id,
+                                full_name: name,
+                                avatar_url: `https://api.dicebear.com/7.x/avataaars/svg?seed=${email}`
+                            });
                     })(),
-                    "Updating Profile (Family ID)"
+                    "Upserting Profile (Family ID)"
                 );
-                if (profileResponse.error) console.warn("Signup: Profile update failed, but auth exists.", profileResponse.error);
+                if (profileResponse.error) {
+                    console.error("Signup: Profile upsert failed.", profileResponse.error);
+                    throw new Error("프로필 연동 중 오류가 발생했습니다: " + profileResponse.error.message);
+                }
 
             } else if (step === 'JOIN_FAMILY') {
                 console.log("Signup: Joining existing family with code:", inviteCode);
@@ -109,17 +116,24 @@ export default function SignupPage() {
                 if (!family) throw new Error("유효하지 않은 초대 코드입니다. 다시 확인해주세요.");
                 console.log("Signup: Family found:", family.id);
 
-                console.log("Signup: Linking user to found family...");
+                console.log("Signup: Upserting user profile with joined family_id...");
                 const profileUpdateResponse = await withTimeout(
                     (async () => {
                         return await supabase
                             .from('profiles')
-                            .update({ family_id: family.id, full_name: name })
-                            .eq('id', user.id);
+                            .upsert({
+                                id: user.id,
+                                family_id: family.id,
+                                full_name: name,
+                                avatar_url: `https://api.dicebear.com/7.x/avataaars/svg?seed=${email}`
+                            });
                     })(),
-                    "Updating Profile (Join Family)"
+                    "Upserting Profile (Join Family)"
                 );
-                if (profileUpdateResponse.error) console.warn("Signup: Profile join failed.", profileUpdateResponse.error);
+                if (profileUpdateResponse.error) {
+                    console.error("Signup: Profile join upsert failed.", profileUpdateResponse.error);
+                    throw new Error("가족 그룹 참여 중 오류가 발생했습니다: " + profileUpdateResponse.error.message);
+                }
             }
 
             console.log("Signup: All operations finished successfully!");
