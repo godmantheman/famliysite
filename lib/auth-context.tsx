@@ -3,6 +3,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { supabase } from './supabase';
 import { User as SupabaseUser } from '@supabase/supabase-js';
+import { withTimeout } from './timeout';
 
 export interface User extends SupabaseUser {
     name?: string;
@@ -20,30 +21,6 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-const TIMEOUT_MS = 10000; // 10 seconds timeout for DB calls
-
-/**
- * Utility to wrap promise with a timeout
- */
-async function withTimeout<T>(promise: Promise<T>, description: string): Promise<T> {
-    let timeoutId: any;
-    const timeoutPromise = new Promise<never>((_, reject) => {
-        timeoutId = setTimeout(() => {
-            console.error(`[Timeout] ${description} timed out after ${TIMEOUT_MS}ms`);
-            reject(new Error(`${description} timed out`));
-        }, TIMEOUT_MS);
-    });
-
-    try {
-        const result = await Promise.race([promise, timeoutPromise]);
-        clearTimeout(timeoutId);
-        return result as T;
-    } catch (error) {
-        clearTimeout(timeoutId);
-        throw error;
-    }
-}
-
 export function AuthProvider({ children }: { children: React.ReactNode }) {
     const [user, setUser] = useState<User | null>(null);
     const [isLoading, setIsLoading] = useState(true);
@@ -54,23 +31,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const checkSession = async () => {
             console.log("AuthContext: checkSession() starting...");
             try {
-                const { data: { session }, error } = await withTimeout(
-                    supabase.auth.getSession(),
+                // Wrap in IIFE to ensure proper Promise type for withTimeout
+                const response = await withTimeout(
+                    (async () => {
+                        return await supabase.auth.getSession();
+                    })(),
                     "supabase.auth.getSession"
                 );
 
-                if (error) {
-                    console.error("AuthContext: getSession error:", error);
+                if (response.error) {
+                    console.error("AuthContext: getSession error:", response.error);
                     return;
                 }
 
+                const session = response.data.session;
                 console.log("AuthContext: Session exists:", !!session);
                 if (session?.user) {
-                    // Update user state immediately with auth data
                     console.log("AuthContext: Setting user state from session:", session.user.id);
                     setUser(session.user);
-
-                    // Fetch profile in background without blocking isLoading
                     fetchProfile(session.user);
                 } else {
                     setUser(null);
@@ -86,18 +64,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const fetchProfile = async (currentUser: SupabaseUser) => {
             console.log("AuthContext: fetchProfile() starting for:", currentUser.id);
             try {
-                const { data: profile, error } = await withTimeout(
-                    supabase
-                        .from('profiles')
-                        .select('*')
-                        .eq('id', currentUser.id)
-                        .maybeSingle(),
+                const response = await withTimeout(
+                    (async () => {
+                        return await supabase
+                            .from('profiles')
+                            .select('*')
+                            .eq('id', currentUser.id)
+                            .maybeSingle();
+                    })(),
                     "Fetch Profile"
                 );
 
-                if (error) {
-                    console.error("AuthContext: Profile fetch error:", error);
-                } else if (profile) {
+                if (response.error) {
+                    console.error("AuthContext: Profile fetch error:", response.error);
+                } else if (response.data) {
+                    const profile = response.data;
                     console.log("AuthContext: Profile found, updating user state enriched");
                     setUser({
                         ...currentUser,
@@ -121,7 +102,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             if (session?.user) {
                 console.log("AuthContext: Auth change - user exists:", session.user.id);
                 setUser(session.user);
-                setIsLoading(false); // Ensure unblocked
+                setIsLoading(false);
                 fetchProfile(session.user);
             } else {
                 console.log("AuthContext: Auth change - no user");

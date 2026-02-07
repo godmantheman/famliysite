@@ -8,27 +8,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { supabase } from '@/lib/supabase';
 import { ArrowLeft, Users, UserPlus } from 'lucide-react';
+import { withTimeout } from '@/lib/timeout';
 import styles from './signup.module.css';
-
-const TIMEOUT_MS = 15000;
-
-async function withTimeout<T>(promise: Promise<T>, description: string): Promise<T> {
-    let timeoutId: any;
-    const timeoutPromise = new Promise<never>((_, reject) => {
-        timeoutId = setTimeout(() => {
-            reject(new Error(`${description} timed out after ${TIMEOUT_MS}ms`));
-        }, TIMEOUT_MS);
-    });
-
-    try {
-        const result = await Promise.race([promise, timeoutPromise]);
-        clearTimeout(timeoutId);
-        return result as T;
-    } catch (error) {
-        clearTimeout(timeoutId);
-        throw error;
-    }
-}
 
 export default function SignupPage() {
     const [step, setStep] = useState<'HOME' | 'CREATE_FAMILY' | 'JOIN_FAMILY'>('HOME');
@@ -51,85 +32,99 @@ export default function SignupPage() {
         try {
             // 1. Auth Signup
             console.log("Signup: Reaching out to Supabase Auth...");
-            const { data: authData, error: authError } = await withTimeout(
-                supabase.auth.signUp({
-                    email,
-                    password,
-                    options: {
-                        data: {
-                            full_name: name,
-                            avatar_url: `https://api.dicebear.com/7.x/avataaars/svg?seed=${email}`
+            const response = await withTimeout(
+                (async () => {
+                    return await supabase.auth.signUp({
+                        email,
+                        password,
+                        options: {
+                            data: {
+                                full_name: name,
+                                avatar_url: `https://api.dicebear.com/7.x/avataaars/svg?seed=${email}`
+                            }
                         }
-                    }
-                }),
+                    });
+                })(),
                 "Supabase SignUp"
             );
 
-            if (authError) throw authError;
-            if (!authData.user) throw new Error("계정 생성에 실패했습니다 (User data null)");
-            console.log("Signup: Auth user created:", authData.user.id);
+            if (response.error) throw response.error;
+            const user = response.data.user;
+            if (!user) throw new Error("계정 생성에 실패했습니다 (User data null)");
+            console.log("Signup: Auth user created:", user.id);
 
             // 2. Family Logic
             if (step === 'CREATE_FAMILY') {
                 console.log("Signup: Creating new family:", familyName);
                 const code = Math.random().toString(36).substring(2, 8).toUpperCase();
-                const { data: newFamily, error: familyError } = await withTimeout(
-                    supabase
-                        .from('families')
-                        .insert({ name: familyName, invite_code: code })
-                        .select()
-                        .maybeSingle(),
+
+                const familyResponse = await withTimeout(
+                    (async () => {
+                        return await supabase
+                            .from('families')
+                            .insert({ name: familyName, invite_code: code })
+                            .select()
+                            .maybeSingle();
+                    })(),
                     "Creating Family"
                 );
 
-                if (familyError) throw familyError;
+                if (familyResponse.error) throw familyResponse.error;
+                const newFamily = familyResponse.data;
                 if (!newFamily) throw new Error("가족 그룹 생성 결과가 없습니다.");
                 console.log("Signup: Family created:", newFamily.id, "Code:", code);
 
                 console.log("Signup: Linking user to family...");
-                const { error: profileError } = await withTimeout(
-                    supabase
-                        .from('profiles')
-                        .update({ family_id: newFamily.id })
-                        .eq('id', authData.user.id),
+                const profileResponse = await withTimeout(
+                    (async () => {
+                        return await supabase
+                            .from('profiles')
+                            .update({ family_id: newFamily.id })
+                            .eq('id', user.id);
+                    })(),
                     "Updating Profile (Family ID)"
                 );
-                if (profileError) console.warn("Signup: Profile update failed, but auth exists.", profileError);
+                if (profileResponse.error) console.warn("Signup: Profile update failed, but auth exists.", profileResponse.error);
 
             } else if (step === 'JOIN_FAMILY') {
                 console.log("Signup: Joining existing family with code:", inviteCode);
                 const codeUpper = inviteCode.trim().toUpperCase();
-                const { data: family, error: findError } = await withTimeout(
-                    supabase
-                        .from('families')
-                        .select('id')
-                        .eq('invite_code', codeUpper)
-                        .maybeSingle(),
+                const findResponse = await withTimeout(
+                    (async () => {
+                        return await supabase
+                            .from('families')
+                            .select('id')
+                            .eq('invite_code', codeUpper)
+                            .maybeSingle();
+                    })(),
                     "Finding Family"
                 );
 
-                if (findError) throw findError;
+                if (findResponse.error) throw findResponse.error;
+                const family = findResponse.data;
                 if (!family) throw new Error("유효하지 않은 초대 코드입니다. 다시 확인해주세요.");
                 console.log("Signup: Family found:", family.id);
 
                 console.log("Signup: Linking user to found family...");
-                const { error: profileError } = await withTimeout(
-                    supabase
-                        .from('profiles')
-                        .update({ family_id: family.id })
-                        .eq('id', authData.user.id),
+                const profileUpdateResponse = await withTimeout(
+                    (async () => {
+                        return await supabase
+                            .from('profiles')
+                            .update({ family_id: family.id })
+                            .eq('id', user.id);
+                    })(),
                     "Updating Profile (Join Family)"
                 );
-                if (profileError) console.warn("Signup: Profile join failed.", profileError);
+                if (profileUpdateResponse.error) console.warn("Signup: Profile join failed.", profileUpdateResponse.error);
             }
 
             console.log("Signup: All operations finished successfully!");
             alert('회원가입 완료! 이제 로그인할 수 있습니다.');
             router.push('/login');
 
-        } catch (error: any) {
+        } catch (error: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
             console.error("Signup Catch Block:", error);
-            alert('회원가입 과정 중 에러가 발생했습니다: ' + (error.message || "알 수 없는 오튜"));
+            alert('회원가입 과정 중 에러가 발생했습니다: ' + (error.message || "알 수 없는 오류"));
         } finally {
             console.log("Signup: Loading state cleared");
             setLoading(false);
