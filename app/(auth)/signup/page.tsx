@@ -10,98 +10,128 @@ import { supabase } from '@/lib/supabase';
 import { ArrowLeft, Users, UserPlus } from 'lucide-react';
 import styles from './signup.module.css';
 
-// Separate CSS file for signup specific styles
-// For now we might need to create it or reuse login styles with some overrides
-// I'll create a new style file `signup.module.css` later, but for now I will use `page.module.css` from login 
-// but wait, I can't import from another folder easily unless simple relative path. 
-// I'll assume usage of a new css file or inline styles for simplicity? 
-// No, I should create `signup.module.css`.
+const TIMEOUT_MS = 15000;
+
+async function withTimeout<T>(promise: Promise<T>, description: string): Promise<T> {
+    let timeoutId: any;
+    const timeoutPromise = new Promise<never>((_, reject) => {
+        timeoutId = setTimeout(() => {
+            reject(new Error(`${description} timed out after ${TIMEOUT_MS}ms`));
+        }, TIMEOUT_MS);
+    });
+
+    try {
+        const result = await Promise.race([promise, timeoutPromise]);
+        clearTimeout(timeoutId);
+        return result as T;
+    } catch (error) {
+        clearTimeout(timeoutId);
+        throw error;
+    }
+}
 
 export default function SignupPage() {
     const [step, setStep] = useState<'HOME' | 'CREATE_FAMILY' | 'JOIN_FAMILY'>('HOME');
     const [loading, setLoading] = useState(false);
     const router = useRouter();
 
-    // Common State
     const [name, setName] = useState('');
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
-
-    // Create Family State
     const [familyName, setFamilyName] = useState('');
-
-    // Join Family State (Invite Code)
     const [inviteCode, setInviteCode] = useState('');
 
     const handleBack = () => setStep('HOME');
 
     const handleSignup = async (e: React.FormEvent) => {
         e.preventDefault();
+        console.log("Signup: handleSubmit initiated");
         setLoading(true);
 
         try {
-            // 1. Sign up user
-            const { data: authData, error: authError } = await supabase.auth.signUp({
-                email,
-                password,
-                options: {
-                    data: {
-                        full_name: name,
-                        avatar_url: `https://api.dicebear.com/7.x/avataaars/svg?seed=${email}`
+            // 1. Auth Signup
+            console.log("Signup: Reaching out to Supabase Auth...");
+            const { data: authData, error: authError } = await withTimeout(
+                supabase.auth.signUp({
+                    email,
+                    password,
+                    options: {
+                        data: {
+                            full_name: name,
+                            avatar_url: `https://api.dicebear.com/7.x/avataaars/svg?seed=${email}`
+                        }
                     }
-                }
-            });
+                }),
+                "Supabase SignUp"
+            );
 
             if (authError) throw authError;
-            if (!authData.user) throw new Error("No user created");
+            if (!authData.user) throw new Error("계정 생성에 실패했습니다 (User data null)");
+            console.log("Signup: Auth user created:", authData.user.id);
 
-            // 2. Handle Family Logic
+            // 2. Family Logic
             if (step === 'CREATE_FAMILY') {
-                // Create new family
+                console.log("Signup: Creating new family:", familyName);
                 const code = Math.random().toString(36).substring(2, 8).toUpperCase();
-                const { data: newFamily, error: familyError } = await supabase
-                    .from('families')
-                    .insert({
-                        name: familyName,
-                        invite_code: code
-                    })
-                    .select()
-                    .single();
+                const { data: newFamily, error: familyError } = await withTimeout(
+                    supabase
+                        .from('families')
+                        .insert({ name: familyName, invite_code: code })
+                        .select()
+                        .maybeSingle(),
+                    "Creating Family"
+                );
 
                 if (familyError) throw familyError;
+                if (!newFamily) throw new Error("가족 그룹 생성 결과가 없습니다.");
+                console.log("Signup: Family created:", newFamily.id, "Code:", code);
 
-                // Update profile with family_id
-                if (newFamily) {
-                    await supabase
+                console.log("Signup: Linking user to family...");
+                const { error: profileError } = await withTimeout(
+                    supabase
                         .from('profiles')
                         .update({ family_id: newFamily.id })
-                        .eq('id', authData.user.id);
-                }
+                        .eq('id', authData.user.id),
+                    "Updating Profile (Family ID)"
+                );
+                if (profileError) console.warn("Signup: Profile update failed, but auth exists.", profileError);
 
             } else if (step === 'JOIN_FAMILY') {
-                // Find family
-                const { data: family, error: findError } = await supabase
-                    .from('families')
-                    .select('id')
-                    .eq('invite_code', inviteCode)
-                    .single();
+                console.log("Signup: Joining existing family with code:", inviteCode);
+                const codeUpper = inviteCode.trim().toUpperCase();
+                const { data: family, error: findError } = await withTimeout(
+                    supabase
+                        .from('families')
+                        .select('id')
+                        .eq('invite_code', codeUpper)
+                        .maybeSingle(),
+                    "Finding Family"
+                );
 
-                if (findError || !family) throw new Error("유효하지 않은 초대 코드입니다.");
+                if (findError) throw findError;
+                if (!family) throw new Error("유효하지 않은 초대 코드입니다. 다시 확인해주세요.");
+                console.log("Signup: Family found:", family.id);
 
-                // Update profile
-                await supabase
-                    .from('profiles')
-                    .update({ family_id: family.id })
-                    .eq('id', authData.user.id);
+                console.log("Signup: Linking user to found family...");
+                const { error: profileError } = await withTimeout(
+                    supabase
+                        .from('profiles')
+                        .update({ family_id: family.id })
+                        .eq('id', authData.user.id),
+                    "Updating Profile (Join Family)"
+                );
+                if (profileError) console.warn("Signup: Profile join failed.", profileError);
             }
 
-            alert('회원가입 완료! 로그인해주세요.');
+            console.log("Signup: All operations finished successfully!");
+            alert('회원가입 완료! 이제 로그인할 수 있습니다.');
             router.push('/login');
 
-        } catch (error: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
-            console.error("Signup Error:", error);
-            alert('회원가입 실패: ' + (error.message || "알 수 없는 오류"));
+        } catch (error: any) {
+            console.error("Signup Catch Block:", error);
+            alert('회원가입 과정 중 에러가 발생했습니다: ' + (error.message || "알 수 없는 오튜"));
         } finally {
+            console.log("Signup: Loading state cleared");
             setLoading(false);
         }
     };
@@ -174,7 +204,7 @@ export default function SignupPage() {
                         </div>
                     )}
 
-                    <div className={styles.divider}>관리자 계정 생성</div>
+                    <div className={styles.divider}>사용자 정보</div>
 
                     <Input
                         label="이름"
@@ -198,6 +228,7 @@ export default function SignupPage() {
                         value={password}
                         onChange={e => setPassword(e.target.value)}
                         required
+                        minLength={6}
                     />
 
                     <Button type="submit" fullWidth disabled={loading} style={{ marginTop: '1rem' }}>

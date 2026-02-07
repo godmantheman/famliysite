@@ -4,7 +4,6 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import { supabase } from './supabase';
 import { User as SupabaseUser } from '@supabase/supabase-js';
 
-// Extend Supabase User with our custom profile fields
 export interface User extends SupabaseUser {
     name?: string;
     avatar?: string;
@@ -13,132 +12,148 @@ export interface User extends SupabaseUser {
 
 interface AuthContextType {
     user: User | null;
-    login: (email: string) => Promise<void>; // Modified for Magic Link for simplicity or we can update Login page for password
+    login: (email: string) => Promise<void>;
     logout: () => Promise<void>;
-    signup: (name: string, email: string) => Promise<void>; // Adjusted signature
+    signup: (name: string, email: string) => Promise<void>;
     isLoading: boolean;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
+
+const TIMEOUT_MS = 10000; // 10 seconds timeout for DB calls
+
+/**
+ * Utility to wrap promise with a timeout
+ */
+async function withTimeout<T>(promise: Promise<T>, description: string): Promise<T> {
+    let timeoutId: any;
+    const timeoutPromise = new Promise<never>((_, reject) => {
+        timeoutId = setTimeout(() => {
+            console.error(`[Timeout] ${description} timed out after ${TIMEOUT_MS}ms`);
+            reject(new Error(`${description} timed out`));
+        }, TIMEOUT_MS);
+    });
+
+    try {
+        const result = await Promise.race([promise, timeoutPromise]);
+        clearTimeout(timeoutId);
+        return result as T;
+    } catch (error) {
+        clearTimeout(timeoutId);
+        throw error;
+    }
+}
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
     const [user, setUser] = useState<User | null>(null);
     const [isLoading, setIsLoading] = useState(true);
 
     useEffect(() => {
-        // Check active session
+        console.log("AuthContext: useEffect [init] starting...");
+
         const checkSession = async () => {
-            console.log("AuthContext: Starting checkSession...");
+            console.log("AuthContext: checkSession() starting...");
             try {
-                const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-                if (sessionError) {
-                    console.error("AuthContext: getSession error:", sessionError);
-                    setIsLoading(false);
+                const { data: { session }, error } = await withTimeout(
+                    supabase.auth.getSession(),
+                    "supabase.auth.getSession"
+                );
+
+                if (error) {
+                    console.error("AuthContext: getSession error:", error);
                     return;
                 }
 
-                console.log("AuthContext: Session retrieved:", !!session);
+                console.log("AuthContext: Session exists:", !!session);
                 if (session?.user) {
-                    // Set basic user info first to unblock UI
-                    console.log("AuthContext: Setting basic user info for:", session.user.id);
+                    // Update user state immediately with auth data
+                    console.log("AuthContext: Setting user state from session:", session.user.id);
                     setUser(session.user);
-                    setIsLoading(false); // Unblock!
 
-                    // Then fetch profile in background
-                    console.log("AuthContext: Fetching profile in background...");
-                    const { data: profile, error: profileError } = await supabase
-                        .from('profiles')
-                        .select('*')
-                        .eq('id', session.user.id)
-                        .maybeSingle();
-
-                    if (profileError) {
-                        console.error("AuthContext: Profile fetch error (bg):", profileError);
-                    } else if (profile) {
-                        console.log("AuthContext: Profile found, updating user state");
-                        setUser({
-                            ...session.user,
-                            name: profile.full_name,
-                            avatar: profile.avatar_url,
-                            familyId: profile.family_id
-                        });
-                    } else {
-                        console.log("AuthContext: No profile found for user");
-                    }
+                    // Fetch profile in background without blocking isLoading
+                    fetchProfile(session.user);
                 } else {
                     setUser(null);
-                    setIsLoading(false);
                 }
             } catch (e) {
-                console.error("AuthContext: Unexpected error in checkSession:", e);
+                console.error("AuthContext: Unexpected error during checkSession:", e);
+            } finally {
+                console.log("AuthContext: setting isLoading = false (init)");
                 setIsLoading(false);
+            }
+        };
+
+        const fetchProfile = async (currentUser: SupabaseUser) => {
+            console.log("AuthContext: fetchProfile() starting for:", currentUser.id);
+            try {
+                const { data: profile, error } = await withTimeout(
+                    supabase
+                        .from('profiles')
+                        .select('*')
+                        .eq('id', currentUser.id)
+                        .maybeSingle(),
+                    "Fetch Profile"
+                );
+
+                if (error) {
+                    console.error("AuthContext: Profile fetch error:", error);
+                } else if (profile) {
+                    console.log("AuthContext: Profile found, updating user state enriched");
+                    setUser({
+                        ...currentUser,
+                        name: profile.full_name,
+                        avatar: profile.avatar_url,
+                        familyId: profile.family_id
+                    });
+                } else {
+                    console.log("AuthContext: No profile found for user in DB.");
+                }
+            } catch (e) {
+                console.error("AuthContext: Unexpected error fetching profile:", e);
             }
         };
 
         checkSession();
 
-        // Listen for auth changes
         const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-            console.log("AuthContext: onAuthStateChange event:", event);
-            try {
-                if (session?.user) {
-                    // Update user immediately
-                    setUser(session.user);
-                    // We don't necessarily need to set isLoading here if it's already false,
-                    // but if it's a fresh sign-in, we might want to ensure UI is ready.
-                    setIsLoading(false);
+            console.log("AuthContext: onAuthStateChange fired:", event);
 
-                    console.log("AuthContext: Fetching profile on change...");
-                    const { data: profile, error } = await supabase
-                        .from('profiles')
-                        .select('*')
-                        .eq('id', session.user.id)
-                        .maybeSingle();
-
-                    if (error) {
-                        console.error("AuthContext: Profile fetch error (change):", error);
-                    } else if (profile) {
-                        console.log("AuthContext: Profile update on change success");
-                        setUser({
-                            ...session.user,
-                            name: profile.full_name,
-                            avatar: profile.avatar_url,
-                            familyId: profile.family_id
-                        });
-                    }
-                } else {
-                    console.log("AuthContext: No session on change, clearing user");
-                    setUser(null);
-                    setIsLoading(false);
-                }
-            } catch (e) {
-                console.error("AuthContext: Auth change handler failed:", e);
+            if (session?.user) {
+                console.log("AuthContext: Auth change - user exists:", session.user.id);
+                setUser(session.user);
+                setIsLoading(false); // Ensure unblocked
+                fetchProfile(session.user);
+            } else {
+                console.log("AuthContext: Auth change - no user");
+                setUser(null);
                 setIsLoading(false);
             }
         });
 
-        return () => subscription.unsubscribe();
+        return () => {
+            console.log("AuthContext: cleanup - unsubscribing");
+            subscription.unsubscribe();
+        };
     }, []);
 
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const login = async (email: string) => {
-        // ... implementation
-        throw new Error("Use supabase.auth.signInWithPassword directly or update this method");
-    };
-
     const logout = async () => {
-        await supabase.auth.signOut();
-        setUser(null);
-    };
-
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const signup = async (name: string, email: string) => {
-        // ... implementation
+        console.log("AuthContext: logout() called");
+        try {
+            await supabase.auth.signOut();
+            setUser(null);
+        } catch (e) {
+            console.error("AuthContext: Logout error:", e);
+        }
     };
 
     return (
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        <AuthContext.Provider value={{ user, login, logout: logout as any, signup: signup as any, isLoading }}>
+        <AuthContext.Provider value={{
+            user,
+            login: async () => { },
+            logout,
+            signup: async () => { },
+            isLoading
+        }}>
             {children}
         </AuthContext.Provider>
     );
