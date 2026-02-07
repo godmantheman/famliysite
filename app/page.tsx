@@ -12,20 +12,20 @@ export default function Home() {
         </div>
 
         <h1 className={styles.title}>
-          Connect Your <br />
-          <span className={styles.highlight}>Family Space</span>
+          가족을 위한 <br />
+          <span className={styles.highlight}>따뜻한 공간</span>
         </h1>
 
         <p className={styles.subtitle}>
-          A shared digital home for your family. Chat, schedule, plan, and share moments together in one beautiful private space.
+          우리 가족만의 소중한 디지털 홈. 채팅, 일정 공유, 할 일 관리, 그리고 추억 앨범까지. 하나의 예쁜 공간에서 가족과 더 가까워지세요.
         </p>
 
         <div className={styles.buttonGroup}>
           <Link href="/login">
-            <Button>Sign In</Button>
+            <Button>로그인</Button>
           </Link>
           <Link href="/signup">
-            <Button variant="secondary">Create Account</Button>
+            <Button variant="secondary">회원가입</Button>
           </Link>
         </div>
 

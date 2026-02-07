@@ -12,24 +12,24 @@ export default function DashboardPage() {
     return (
         <div className={styles.container}>
             <header className={styles.header}>
-                <h1 className={styles.title}>Welcome home, {user?.name?.split(' ')[0]}! 👋</h1>
+                <h1 className={styles.title}>어서오세요, {user?.name?.split(' ')[0]}님! 👋</h1>
                 <p className={styles.date}>{date}</p>
             </header>
 
             <div className={styles.grid}>
                 <Card className={styles.todayCard}>
-                    <h2>Today's Schedule</h2>
-                    <div className={styles.emptyState}>No events scheduled for today.</div>
+                    <h2>오늘의 일정</h2>
+                    <div className={styles.emptyState}>오늘 예정된 일정이 없습니다.</div>
                 </Card>
 
                 <Card className={styles.chatCard}>
-                    <h2>Recent Messages</h2>
-                    <div className={styles.emptyState}>No recent messages.</div>
+                    <h2>최근 메시지</h2>
+                    <div className={styles.emptyState}>최근 대화가 없습니다.</div>
                 </Card>
 
                 <Card className={styles.todoCard}>
-                    <h2>To-Do List</h2>
-                    <div className={styles.emptyState}>All tasks completed!</div>
+                    <h2>해야 할 일</h2>
+                    <div className={styles.emptyState}>모든 할 일을 마쳤습니다!</div>
                 </Card>
             </div>
         </div>

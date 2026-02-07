@@ -17,7 +17,7 @@ export default function ProfilePage() {
     const handleSave = () => {
         // Mock save
         setIsEditing(false);
-        alert('Profile updated!');
+        alert('프로필이 업데이트되었습니다!');
     };
 
     return (
@@ -42,18 +42,18 @@ export default function ProfilePage() {
                 {isEditing ? (
                     <div className={styles.form}>
                         <div className={styles.section}>
-                            <h2 className={styles.sectionTitle}>Personal Information</h2>
-                            <Input label="Display Name" value={name} onChange={(e) => setName(e.target.value)} />
-                            <Input label="Status Message" value={status} onChange={(e) => setStatus(e.target.value)} />
+                            <h2 className={styles.sectionTitle}>개인 정보</h2>
+                            <Input label="이름" value={name} onChange={(e) => setName(e.target.value)} />
+                            <Input label="상태 메시지" value={status} onChange={(e) => setStatus(e.target.value)} />
                         </div>
 
                         <div style={{ display: 'flex', gap: '1rem', justifyContent: 'flex-end' }}>
-                            <Button variant="ghost" onClick={() => setIsEditing(false)}>Cancel</Button>
-                            <Button onClick={handleSave}><Save size={16} style={{ marginRight: '8px' }} /> Save Changes</Button>
+                            <Button variant="ghost" onClick={() => setIsEditing(false)}>취소</Button>
+                            <Button onClick={handleSave}><Save size={16} style={{ marginRight: '8px' }} /> 저장</Button>
                         </div>
                     </div>
                 ) : (
-                    <Button onClick={() => setIsEditing(true)} fullWidth>Edit Profile</Button>
+                    <Button onClick={() => setIsEditing(true)} fullWidth>프로필 수정</Button>
                 )}
             </Card>
         </div>

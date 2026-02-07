@@ -4,7 +4,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '@/lib/auth-context';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { Send, Image as ImageIcon, Smile } from 'lucide-react';
+import { Send, Image as ImageIcon } from 'lucide-react';
 import styles from './page.module.css';
 import { clsx } from 'clsx';
 
@@ -17,14 +17,9 @@ interface Message {
     avatar?: string;
 }
 
-const MOCK_MESSAGES: Message[] = [
-    { id: '1', text: '저녁 뭐 먹을까?', senderId: '2', senderName: 'Mom', timestamp: new Date(Date.now() - 3600000), avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Mom' },
-    { id: '2', text: '치킨 어때요?', senderId: '3', senderName: 'Brother', timestamp: new Date(Date.now() - 3500000), avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Brother' },
-];
-
 export default function ChatPage() {
     const { user } = useAuth();
-    const [messages, setMessages] = useState<Message[]>(MOCK_MESSAGES);
+    const [messages, setMessages] = useState<Message[]>([]);
     const [inputText, setInputText] = useState('');
     const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -56,11 +51,11 @@ export default function ChatPage() {
         setTimeout(() => {
             const reply: Message = {
                 id: (Date.now() + 1).toString(),
-                text: '좋아요!',
-                senderId: '2',
-                senderName: 'Mom',
+                text: '좋아요! (자동 응답)',
+                senderId: 'ai',
+                senderName: '가족 도우미',
                 timestamp: new Date(),
-                avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Mom'
+                avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Helper'
             };
             setMessages(prev => [...prev, reply]);
         }, 1500);
@@ -70,22 +65,14 @@ export default function ChatPage() {
         <div className={styles.container}>
             <div className={styles.sidebar}>
                 <div className={styles.searchBar}>
-                    <Input placeholder="Search messages..." />
+                    <Input placeholder="메시지 검색..." />
                 </div>
                 <div className={styles.chatList}>
                     <div className={`${styles.chatItem} ${styles.activeChat}`}>
                         <div className={styles.avatar} style={{ backgroundImage: `url(https://api.dicebear.com/7.x/avataaars/svg?seed=family)` }}></div>
                         <div className={styles.chatInfo}>
-                            <div className={styles.chatName}>Family Group</div>
-                            <div className={styles.lastMessage}>{messages[messages.length - 1]?.text}</div>
-                        </div>
-                    </div>
-                    {/* Mock other chats */}
-                    <div className={styles.chatItem}>
-                        <div className={styles.avatar} style={{ backgroundColor: '#FFC6C6' }}></div>
-                        <div className={styles.chatInfo}>
-                            <div className={styles.chatName}>Mom</div>
-                            <div className={styles.lastMessage}>Where are you?</div>
+                            <div className={styles.chatName}>가족 단체방</div>
+                            <div className={styles.lastMessage}>{messages[messages.length - 1]?.text || '대화가 없습니다.'}</div>
                         </div>
                     </div>
                 </div>
@@ -93,10 +80,15 @@ export default function ChatPage() {
 
             <div className={styles.main}>
                 <div className={styles.header}>
-                    Family Group
+                    가족 단체방
                 </div>
 
                 <div className={styles.messageList}>
+                    {messages.length === 0 && (
+                        <div style={{ textAlign: 'center', marginTop: '2rem', color: 'var(--muted-foreground)' }}>
+                            첫 메시지를 보내보세요! 👋
+                        </div>
+                    )}
                     {messages.map((msg) => {
                         const isOwn = msg.senderId === user?.id;
                         return (
@@ -120,7 +112,7 @@ export default function ChatPage() {
                     <Input
                         value={inputText}
                         onChange={(e) => setInputText(e.target.value)}
-                        placeholder="Type a message..."
+                        placeholder="메시지를 입력하세요..."
                         className={styles.chatInput}
                     />
                     <Button type="submit" size="icon"><Send size={18} /></Button>

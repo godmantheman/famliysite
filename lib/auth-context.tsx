@@ -29,7 +29,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         // Check local storage for existing session
         const storedUser = localStorage.getItem('family_app_user');
         if (storedUser) {
-            setUser(JSON.parse(storedUser));
+            try {
+                // eslint-disable-next-line react-hooks/exhaustive-deps
+                setUser(JSON.parse(storedUser));
+            } catch (e) {
+                console.error("Failed to parse user from local storage", e)
+            }
         }
         setIsLoading(false);
     }, []);

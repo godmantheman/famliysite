@@ -10,12 +10,12 @@ import { clsx } from 'clsx';
 import { Button } from '@/components/ui/button';
 
 const NAV_ITEMS = [
-    { href: '/dashboard', label: 'Overview', icon: Home },
-    { href: '/dashboard/chat', label: 'Family Chat', icon: MessageCircle },
-    { href: '/dashboard/calendar', label: 'Calendar', icon: Calendar },
-    { href: '/dashboard/todo', label: 'To-Do List', icon: CheckSquare },
-    { href: '/dashboard/photos', label: 'Photo Album', icon: ImageIcon },
-    { href: '/dashboard/profile', label: 'Profile', icon: User },
+    { href: '/dashboard', label: '홈', icon: Home },
+    { href: '/dashboard/chat', label: '가족 채팅', icon: MessageCircle },
+    { href: '/dashboard/calendar', label: '캘린더', icon: Calendar },
+    { href: '/dashboard/todo', label: '할 일', icon: CheckSquare },
+    { href: '/dashboard/photos', label: '앨범', icon: ImageIcon },
+    { href: '/dashboard/profile', label: '프로필', icon: User },
 ];
 
 export default function DashboardLayout({
@@ -30,7 +30,7 @@ export default function DashboardLayout({
         <div className={styles.container}>
             <aside className={styles.sidebar}>
                 <div className={styles.logo}>
-                    <Heart fill="currentColor" /> Family App
+                    <Heart fill="currentColor" /> 우리가족
                 </div>
 
                 <nav className={styles.nav}>
@@ -58,7 +58,7 @@ export default function DashboardLayout({
                         <div className={styles.userName}>{user?.name}</div>
                         <div className={styles.userEmail}>{user?.email}</div>
                     </div>
-                    <Button variant="ghost" size="icon" onClick={logout} title="Sign out">
+                    <Button variant="ghost" size="icon" onClick={logout} title="로그아웃">
                         <LogOut size={18} />
                     </Button>
                 </div>

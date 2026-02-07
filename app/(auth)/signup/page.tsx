@@ -30,49 +30,49 @@ export default function SignupPage() {
 
     return (
         <Card className={styles.card}>
-            <h1 className={styles.title}>Join Family</h1>
-            <p className={styles.subtitle}>Create your account</p>
+            <h1 className={styles.title}>가족이 되어보세요</h1>
+            <p className={styles.subtitle}>새 계정 만들기</p>
 
             <form onSubmit={handleSubmit} className={styles.form}>
                 <Input
-                    label="Full Name"
-                    placeholder="John Doe"
+                    label="이름"
+                    placeholder="홍길동"
                     type="text"
                     value={name}
                     onChange={(e) => setName(e.target.value)}
                     required
                 />
                 <Input
-                    label="Email"
-                    placeholder="john@example.com"
+                    label="이메일"
+                    placeholder="example@email.com"
                     type="email"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     required
                 />
                 <Input
-                    label="Password"
-                    placeholder="Create a password"
+                    label="비밀번호"
+                    placeholder="비밀번호 설정"
                     type="password"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     required
                 />
                 <Input
-                    label="Family Code (Optional)"
-                    placeholder="Enter code to join existing family"
+                    label="가족 코드 (선택)"
+                    placeholder="기존 가족에 합류하려면 코드를 입력하세요"
                     type="text"
                     value={familyCode}
                     onChange={(e) => setFamilyCode(e.target.value)}
                 />
 
                 <Button type="submit" fullWidth disabled={loading}>
-                    {loading ? 'Creating Account...' : 'Sign Up'}
+                    {loading ? '가입 중...' : '회원가입'}
                 </Button>
             </form>
 
             <div className={styles.footer}>
-                <p>Already have an account? <Link href="/login" className={styles.link}>Sign in</Link></p>
+                <p>이미 계정이 있으신가요? <Link href="/login" className={styles.link}>로그인</Link></p>
             </div>
         </Card>
     );
